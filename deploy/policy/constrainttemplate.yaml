@@ -1,0 +1,118 @@
+apiVersion: templates.gatekeeper.sh/v1
+kind: ConstraintTemplate
+metadata:
+  name: k8srequiredsecuritycontext
+  annotations:
+    description: Reject Deployments/Pods that omit the Gulf Seafloor hardened securityContext.
+spec:
+  crd:
+    spec:
+      names:
+        kind: K8sRequiredSecurityContext
+  targets:
+    - target: admission.k8s.gatekeeper.sh
+      rego: |
+        package k8srequiredsecuritycontext
+
+        violation[{"msg": msg}] {
+          obj := review_object
+          spec := pod_spec(obj)
+          not spec.securityContext.runAsNonRoot == true
+          msg := sprintf("%s/%s: pod securityContext.runAsNonRoot must be true", [obj.kind, name(obj)])
+        }
+
+        violation[{"msg": msg}] {
+          obj := review_object
+          spec := pod_spec(obj)
+          not spec.securityContext.runAsUser == 65532
+          msg := sprintf("%s/%s: pod securityContext.runAsUser must be 65532", [obj.kind, name(obj)])
+        }
+
+        violation[{"msg": msg}] {
+          obj := review_object
+          spec := pod_spec(obj)
+          not spec.securityContext.seccompProfile.type == "RuntimeDefault"
+          msg := sprintf("%s/%s: pod securityContext.seccompProfile.type must be RuntimeDefault", [obj.kind, name(obj)])
+        }
+
+        violation[{"msg": msg}] {
+          obj := review_object
+          spec := pod_spec(obj)
+          spec.hostNetwork == true
+          msg := sprintf("%s/%s: hostNetwork must not be true", [obj.kind, name(obj)])
+        }
+
+        violation[{"msg": msg}] {
+          obj := review_object
+          c := containers(obj)[_]
+          not c.securityContext.runAsNonRoot == true
+          msg := sprintf("%s/%s container %q: runAsNonRoot must be true", [obj.kind, name(obj), c.name])
+        }
+
+        violation[{"msg": msg}] {
+          obj := review_object
+          c := containers(obj)[_]
+          not c.securityContext.runAsUser == 65532
+          msg := sprintf("%s/%s container %q: runAsUser must be 65532", [obj.kind, name(obj), c.name])
+        }
+
+        violation[{"msg": msg}] {
+          obj := review_object
+          c := containers(obj)[_]
+          not c.securityContext.allowPrivilegeEscalation == false
+          msg := sprintf("%s/%s container %q: allowPrivilegeEscalation must be false", [obj.kind, name(obj), c.name])
+        }
+
+        violation[{"msg": msg}] {
+          obj := review_object
+          c := containers(obj)[_]
+          not c.securityContext.readOnlyRootFilesystem == true
+          msg := sprintf("%s/%s container %q: readOnlyRootFilesystem must be true", [obj.kind, name(obj), c.name])
+        }
+
+        violation[{"msg": msg}] {
+          obj := review_object
+          c := containers(obj)[_]
+          not drop_all(c)
+          msg := sprintf("%s/%s container %q: capabilities.drop must include ALL", [obj.kind, name(obj), c.name])
+        }
+
+        violation[{"msg": msg}] {
+          obj := review_object
+          c := containers(obj)[_]
+          not c.securityContext.seccompProfile.type == "RuntimeDefault"
+          msg := sprintf("%s/%s container %q: seccompProfile.type must be RuntimeDefault", [obj.kind, name(obj), c.name])
+        }
+
+        violation[{"msg": msg}] {
+          obj := review_object
+          c := containers(obj)[_]
+          c.securityContext.privileged == true
+          msg := sprintf("%s/%s container %q: privileged must not be true", [obj.kind, name(obj), c.name])
+        }
+
+        review_object := input.review.object
+
+        review_object := input {
+          not input.review
+        }
+
+        name(obj) := obj.metadata.name
+
+        name(obj) := "unknown" {
+          not obj.metadata.name
+        }
+
+        pod_spec(obj) := obj.spec.template.spec {
+          obj.kind == "Deployment"
+        }
+
+        pod_spec(obj) := obj.spec {
+          obj.kind == "Pod"
+        }
+
+        containers(obj) := pod_spec(obj).containers
+
+        drop_all(c) {
+          c.securityContext.capabilities.drop[_] == "ALL"
+        }

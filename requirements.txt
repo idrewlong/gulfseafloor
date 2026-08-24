@@ -1,0 +1,17 @@
+# Real-data pipeline (Phase 1). The synthetic Go tiler (`make tiles`) does not
+# need these packages — the rest of the repo works without them.
+#
+# GDAL system packages are also required for the real pipeline:
+#   gdal-bin, python3-gdal (Debian/Ubuntu)
+#   brew install gdal (macOS)
+#   or OSGeo4W (Windows)
+# rio-rgbify and gdal2tiles.py live on that GDAL + rasterio stack.
+#
+# Before treating any NOAA product as current, check the NESDIS Notice of Changes:
+#   https://www.nesdis.noaa.gov/notice-of-changes
+
+rasterio>=1.5
+rio-rgbify>=0.4
+h5py>=3.16
+netCDF4>=1.7
+numpy>=2.0

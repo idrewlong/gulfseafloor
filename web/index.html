@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <meta
+      name="description"
+      content="GPU bathymetric terrain viewer for the Mississippi Sound. Turbid-water and sand shading with OSM island outlines. Not an official NOAA product."
+    />
+    <title>Gulf Seafloor Viewer</title>
+  </head>
+  <body>
+    <a class="skip-link" href="#controls">Skip to controls</a>
+    <div id="app">
+      <canvas
+        id="terrain"
+        tabindex="0"
+        aria-label="Bathymetric terrain of the Mississippi Sound. Drag to pan, scroll to zoom, right-drag to tilt, or use arrow keys."
+      ></canvas>
+      <div class="neatline" aria-hidden="true"></div>
+
+      <header class="chart-head">
+        <div class="chart-head-text">
+          <h1>Gulf Seafloor Viewer</h1>
+          <p id="region-line">Mississippi Sound · synthetic seed</p>
+        </div>
+        <div class="chart-head-actions">
+          <div class="nav-help" id="nav-help">
+            <button
+              type="button"
+              id="nav-help-toggle"
+              aria-expanded="false"
+              aria-controls="nav-help-tip"
+              aria-describedby="nav-help-tip"
+            >
+              <svg class="nav-help-mark" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="1.5" />
+                <circle cx="12" cy="8" r="1.15" fill="currentColor" />
+                <path d="M12 11.25v6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square" />
+              </svg>
+              <span class="visually-hidden">Map controls</span>
+            </button>
+            <div id="nav-help-tip" class="nav-help-tip" role="tooltip">
+              <p class="nav-help-kicker">Move the chart</p>
+              <dl>
+                <div><dt>Drag</dt><dd>Pan</dd></div>
+                <div><dt>Scroll</dt><dd>Zoom</dd></div>
+                <div><dt>Right-drag</dt><dd>Tilt</dd></div>
+                <div><dt>Two fingers</dt><dd>Tilt</dd></div>
+                <div><dt>Arrows</dt><dd>Pan</dd></div>
+              </dl>
+            </div>
+          </div>
+          <button type="button" id="about-toggle" aria-haspopup="dialog" aria-controls="about">
+            About
+            <kbd>?</kbd>
+          </button>
+        </div>
+      </header>
+
+      <aside id="legend" class="legend" aria-label="Hypsometric depth window"></aside>
+
+      <div id="readout" class="readout" aria-live="polite">
+        <span class="readout-ll">—</span>
+        <span class="readout-depth">—</span>
+      </div>
+
+      <aside id="locator" class="locator" aria-label="Locator map of the northern Gulf of Mexico"></aside>
+      <div id="geo-labels" class="geo-labels" aria-hidden="true"></div>
+      <p id="caption" class="scene-caption">
+        Looking north · Mississippi Sound · synthetic depths · 12× vertical
+      </p>
+      <p id="credits" class="credits" hidden>
+        Imagery: Esri, Maxar, Earthstar Geographics
+      </p>
+
+      <p id="status" class="status" role="status" hidden></p>
+
+      <form id="controls" class="controls" autocomplete="off">
+        <div class="control-block control-exag">
+          <label for="exaggeration">Vertical exaggeration</label>
+          <div class="control-row">
+            <input
+              id="exaggeration"
+              type="range"
+              min="1"
+              max="50"
+              step="1"
+              value="12"
+            />
+            <output id="exaggeration-out" for="exaggeration">12×</output>
+          </div>
+        </div>
+
+        <fieldset id="contours" class="control-block">
+          <legend>Contours</legend>
+          <div class="radio-row">
+            <label><input type="radio" name="contour" value="0" checked /> Off</label>
+            <label><input type="radio" name="contour" value="10" /> 10 m</label>
+            <label><input type="radio" name="contour" value="50" /> 50 m</label>
+            <label><input type="radio" name="contour" value="100" /> 100 m</label>
+          </div>
+        </fieldset>
+
+        <fieldset id="imagery" class="control-block">
+          <legend>Satellite</legend>
+          <div class="radio-row">
+            <label><input type="radio" name="imagery" value="0" /> Off</label>
+            <label><input type="radio" name="imagery" value="0.45" checked /> Blend</label>
+            <label><input type="radio" name="imagery" value="0.88" /> On</label>
+          </div>
+        </fieldset>
+
+        <div class="control-block">
+          <label for="sun-azimuth">Sun azimuth</label>
+          <div class="control-row">
+            <input id="sun-azimuth" type="range" min="0" max="360" step="1" value="315" />
+            <output id="sun-azimuth-out" for="sun-azimuth">315°</output>
+          </div>
+        </div>
+
+        <div class="control-block">
+          <label for="sun-altitude">Sun altitude</label>
+          <div class="control-row">
+            <input id="sun-altitude" type="range" min="5" max="85" step="1" value="38" />
+            <output id="sun-altitude-out" for="sun-altitude">38°</output>
+          </div>
+        </div>
+      </form>
+
+      <dialog id="about" class="about">
+        <form method="dialog">
+          <h2>What you are looking at</h2>
+          <p>
+            A 3D model of the <strong>Mississippi Sound</strong> — Lake Borgne to
+            Dauphin Island. The mainland waterline is the OpenStreetMap
+            coastline, so the bays, bayous and river mouths are the real ones,
+            and the islands follow their OpenStreetMap shorelines (Cat,
+            West/East Ship, Horn, Petit Bois, Dauphin, Deer). Depths are still a
+            synthetic stand-in, not NOAA survey data. North is the mainland
+            (Bay St. Louis, Gulfport, Biloxi, Pascagoula).
+          </p>
+          <h3>Moving around</h3>
+          <p>
+            Drag to pan east–west and north–south. Scroll to zoom. Right-drag
+            (or two fingers) to tilt. Arrow keys pan once the map has focus.
+          </p>
+          <h3>Not a photograph</h3>
+          <p>
+            The surface is a <strong>heightfield</strong>. Each PNG tile stores depth in its
+            RGB values (Mapzen Terrarium encoding). The GPU lifts every vertex from that
+            depth. Water is shaded as turbid Sound: sand shows in the shallows, channels
+            go olive, the Gulf goes darker. Beaches and dunes are sand. Satellite drapes
+            on land only — imagery over the Sound is mostly sunglint.
+          </p>
+          <p>
+            Zoom levels 6–12 are the same idea as a web map: more tiles, finer ground sample.
+            They are not extra pictures of the same view.
+          </p>
+          <h3>This seed is synthetic</h3>
+          <p>
+            Tiles in this build are a procedural stand-in so the viewer runs with the network
+            unplugged. They are <strong>not NOAA survey data</strong> and must not be presented
+            as unaltered NOAA bathymetry. The coastline and island outlines are
+            © OpenStreetMap contributors (ODbL).
+          </p>
+          <h3>Satellite</h3>
+          <p>
+            Optional and on by default (Blend). The server proxies Esri World Imagery for the same {z}/{x}/{y} as the
+            height tiles and drapes it on the mesh. Air-gapped hosts get a 404; the bathymetry
+            still works. Attribution: Esri, Maxar, Earthstar Geographics.
+          </p>
+          <h3>Export control</h3>
+          <p>
+            Every byte in this repository is from a public, unauthenticated source. No CUI,
+            no .mil holdings, no gated datasets.
+          </p>
+          <button type="submit" value="close">Close</button>
+        </form>
+      </dialog>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

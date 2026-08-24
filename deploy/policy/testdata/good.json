@@ -1,0 +1,29 @@
+{
+  "kind": "Deployment",
+  "metadata": { "name": "gulf-viewer" },
+  "spec": {
+    "template": {
+      "spec": {
+        "hostNetwork": false,
+        "securityContext": {
+          "runAsNonRoot": true,
+          "runAsUser": 65532,
+          "seccompProfile": { "type": "RuntimeDefault" }
+        },
+        "containers": [
+          {
+            "name": "gulf-viewer",
+            "securityContext": {
+              "runAsNonRoot": true,
+              "runAsUser": 65532,
+              "allowPrivilegeEscalation": false,
+              "readOnlyRootFilesystem": true,
+              "capabilities": { "drop": ["ALL"] },
+              "seccompProfile": { "type": "RuntimeDefault" }
+            }
+          }
+        ]
+      }
+    }
+  }
+}

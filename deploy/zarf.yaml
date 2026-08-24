@@ -1,0 +1,31 @@
+kind: ZarfPackageConfig
+metadata:
+  name: gulf-viewer
+  description: Gulf Seafloor Viewer — air-gap tile server, SPA, and seed tiles
+  version: 0.1.0
+  url: https://github.com/idrewlong/gulfseafloor
+
+components:
+  - name: gulf-viewer
+    description: Distroless non-root viewer image plus hardened Kubernetes manifests
+    required: true
+    images:
+      - ghcr.io/idrewlong/gulfseafloor:0.1.0
+    manifests:
+      - name: k8s
+        namespace: gulfseafloor
+        files:
+          - k8s/deployment.yaml
+          - k8s/service.yaml
+
+  - name: seed-tiles
+    description: >
+      Optional seed Terrarium tile pyramid for the Mississippi Bight AOI.
+      Generate with `make tiles` (synthetic stand-in). The component is here
+      so a disconnected install can ship a runnable viewer without fetching
+      NOAA rasters on the far side of the air gap. Paths are relative to
+      this file (`zarf package create deploy/`).
+    required: false
+    files:
+      - source: ../data/tiles
+        target: /opt/gulfseafloor/tiles

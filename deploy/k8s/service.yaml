@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: gulf-viewer
+  labels:
+    app.kubernetes.io/name: gulf-viewer
+    app.kubernetes.io/part-of: gulfseafloor
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: gulf-viewer
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP

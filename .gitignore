@@ -1,0 +1,62 @@
+# Generated / fetched data
+data/raw/
+data/work/
+data/tiles/
+data/soundings/
+*.tiff
+*.tif
+*.h5
+*.nc
+
+# Node
+web/node_modules/
+web/dist/
+web/dist-ssr/
+/package-lock.json
+
+# Go binaries
+/gulf-viewer
+/tiler
+/ingest
+/bin/
+*.exe
+*.test
+coverage.out
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Terraform / IaC leftovers
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+crash.log
+crash.*.log
+
+# Zarf air-gap packages
+zarf-package-*.tar.zst
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Nominatim dumps used only by internal/shelf/gen_outlines.py
+internal/shelf/osm/
+
+# Superpowers / agent scratch
+.superpowers/
+.worktrees/

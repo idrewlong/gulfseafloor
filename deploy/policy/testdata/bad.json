@@ -1,0 +1,13 @@
+{
+  "kind": "Deployment",
+  "metadata": { "name": "wide-open" },
+  "spec": {
+    "template": {
+      "spec": {
+        "containers": [
+          { "name": "web", "image": "nginx" }
+        ]
+      }
+    }
+  }
+}
