@@ -1,0 +1,4 @@
+#id|owner|ttype|hull|name|payload|location|timezone|forecast|note
+WYCM6|NWLON|fixed|n/a|Gulfport Harbor|stdmet|30.360 N 89.081 W|CST|n/a|n/a
+42040|NDBC|buoy|3m|Luke Offshore Test Site|stdmet|29.50 N 88.207 W|CST|n/a|n/a
+41009|NDBC|buoy|3m|Far Away|stdmet|28.500 N 80.180 W|EST|n/a|n/a
