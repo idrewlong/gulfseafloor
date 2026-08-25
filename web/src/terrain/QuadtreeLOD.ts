@@ -13,10 +13,11 @@ import {
   type TileCoord,
 } from '../geo';
 import { marchHeightfield } from './pick';
+import { canRefine, satelliteVisible, type DisplayQuery } from './lodPolicy';
 import { TerrainTile, type SharedTerrainUniforms } from './TerrainTile';
 
 const MAX_INFLIGHT = 16;
-const MAX_IMAGERY_INFLIGHT = 6;
+const MAX_IMAGERY_INFLIGHT = 10;
 const MAX_IMAGERY_RETRIES = 2;
 
 /**
@@ -152,6 +153,8 @@ export class QuadtreeLOD {
   private imgQueuedKeys = new Set<string>();
   private readyCount = 0;
   private wantImagery = false;
+  private userImageryOpacity = 0;
+  private imageryLayerOn = false;
   private imageryRetries = new Map<string, number>();
   private readonly tileVersion: string;
 
@@ -200,11 +203,19 @@ export class QuadtreeLOD {
   setImageryEnabled(on: boolean): void {
     this.wantImagery = on;
     if (on) {
-      for (const node of this.visible) {
-        this.enqueueImagery(node);
+      for (const node of this.nodes.values()) {
+        if (node.state === 'ready') {
+          this.enqueueImagery(node);
+        }
       }
       this.drainImagery();
     }
+    this.applyImageryGate();
+  }
+
+  setImageryOpacity(opacity: number): void {
+    this.userImageryOpacity = opacity;
+    this.setImageryEnabled(opacity > 0);
   }
 
   /** Loads the resident base pyramid. Finer zooms stream in from update(). */
@@ -217,6 +228,7 @@ export class QuadtreeLOD {
     const coarse = this.layers.get(this.minZoom) ?? [];
     await Promise.all(coarse.map((n) => this.waitFor(n)));
     this.showLayer(this.coarsestCompleteZoom());
+    this.drainImagery();
   }
 
   update(camera: THREE.PerspectiveCamera, viewportHeight: number): void {
@@ -234,6 +246,7 @@ export class QuadtreeLOD {
 
     this.drainQueue();
     this.drainImagery();
+    this.applyImageryGate();
     this.evict();
   }
 
@@ -362,27 +375,22 @@ export class QuadtreeLOD {
       return;
     }
 
-    let allReady = true;
     for (const child of children) {
       child.lastWanted = this.frame;
+      if (child.state === 'pending') {
+        this.enqueue(child);
+      }
       if (child.state === 'ready') {
-        continue;
+        this.enqueueImagery(child);
       }
-      if (child.state === 'missing') {
-        continue; // nothing to load there; parent keeps covering it
-      }
-      allReady = false;
-      this.enqueue(child);
     }
-    if (!allReady) {
+    if (!canRefine(children.map((c) => this.displayQuery(c)))) {
       out.push(node);
       return;
     }
 
     for (const child of children) {
-      if (child.state === 'ready') {
-        this.select(child, camera, viewportHeight, out);
-      }
+      this.select(child, camera, viewportHeight, out);
     }
   }
 
@@ -401,6 +409,27 @@ export class QuadtreeLOD {
       this.visible.push(node);
       this.enqueueImagery(node);
     }
+  }
+
+  private displayQuery(node: LodNode): DisplayQuery {
+    return {
+      state: node.state,
+      wantImagery: this.wantImagery,
+      hasImagery: node.tile?.hasImagery() ?? false,
+      imageryFailed: node.tile?.imageryFailed() ?? false,
+    };
+  }
+
+  private applyImageryGate(): void {
+    const visible = this.visible
+      .filter((n) => n.tile)
+      .map((n) => ({
+        hasImagery: n.tile?.hasImagery() ?? false,
+        imageryFailed: n.tile?.imageryFailed() ?? false,
+      }));
+    const on = satelliteVisible(visible, this.wantImagery, this.imageryLayerOn);
+    this.imageryLayerOn = on;
+    this.shared.uImageryOpacity.value = on ? this.userImageryOpacity : 0;
   }
 
   /** Bootstrap fallback before the first update() has a camera to measure. */
@@ -470,6 +499,7 @@ export class QuadtreeLOD {
           return;
         }
         this.drainQueue();
+        this.drainImagery();
         requestAnimationFrame(tick);
       };
       tick();
@@ -497,6 +527,7 @@ export class QuadtreeLOD {
     node.state = 'ready';
     this.readyCount += 1;
     this.group.add(tile.mesh);
+    this.enqueueImagery(node);
   }
 
   private enqueueImagery(node: LodNode): void {
@@ -522,15 +553,25 @@ export class QuadtreeLOD {
     if (!this.wantImagery) {
       return;
     }
-    // Drop anything that stopped being visible before it reached the front.
     this.imgQueued = this.imgQueued.filter((n) => {
-      if (n.tile && n.lastWanted === this.frame) {
+      if (!n.tile || n.tile.hasImagery() || n.tile.imageryBusy()) {
+        this.imgQueuedKeys.delete(n.key);
+        return false;
+      }
+      if (n.lastWanted === this.frame) {
         return true;
       }
       this.imgQueuedKeys.delete(n.key);
       return false;
     });
-    this.imgQueued.sort((a, b) => a.coord.z - b.coord.z);
+    this.imgQueued.sort((a, b) => {
+      const av = a.tile?.mesh.visible ? 0 : 1;
+      const bv = b.tile?.mesh.visible ? 0 : 1;
+      if (av !== bv) {
+        return av - bv;
+      }
+      return a.coord.z - b.coord.z;
+    });
     while (this.imgInflight < MAX_IMAGERY_INFLIGHT && this.imgQueued.length > 0) {
       const node = this.imgQueued.shift();
       if (!node) {
