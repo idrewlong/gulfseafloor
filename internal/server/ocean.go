@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
@@ -75,7 +76,12 @@ func (s *Server) handleOcean(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(data)
 }
 
+var errOceanJSON = errors.New("ocean: invalid JSON")
+
 func decodeOcean(name string, data []byte) error {
+	if !json.Valid(data) {
+		return errOceanJSON
+	}
 	r := bytes.NewReader(data)
 	switch name {
 	case "currents":

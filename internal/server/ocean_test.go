@@ -161,6 +161,23 @@ func TestOceanMalformedJSONIs500(t *testing.T) {
 	}
 }
 
+func TestOceanTrailingGarbageIs500(t *testing.T) {
+	dir := t.TempDir()
+	body := validCurrentsJSON + "\n trailing garbage"
+	if err := os.WriteFile(filepath.Join(dir, "currents.json"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := oceanHandler(t, dir)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/ocean/currents", nil))
+	if rec.Code != 500 {
+		t.Fatalf("%d %s", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), dir) {
+		t.Fatal("must not leak path")
+	}
+}
+
 func TestOceanInvalidSnapshotIs500(t *testing.T) {
 	dir := t.TempDir()
 	body := `{
