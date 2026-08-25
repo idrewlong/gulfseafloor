@@ -2,6 +2,7 @@
 data/raw/
 data/work/
 data/tiles/
+data/ocean/
 data/soundings/
 *.tiff
 *.tif
@@ -17,6 +18,7 @@ web/dist-ssr/
 # Go binaries
 /gulf-viewer
 /tiler
+/ocean
 /ingest
 /bin/
 *.exe

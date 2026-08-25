@@ -1,7 +1,8 @@
-.PHONY: test tiles web server run tidy
+.PHONY: test tiles web server run tidy ocean
 
 DATA_DIR ?= data/tiles
 BIN ?= gulf-viewer
+HYCOM_NCSS ?=
 
 test:
 	go test ./...
@@ -24,3 +25,7 @@ run: tiles web server
 tidy:
 	go test ./...
 	cd web && npm run build
+
+ocean:
+	@test -n "$(HYCOM_NCSS)" || (echo "set HYCOM_NCSS to a THREDDS NCSS URL"; exit 2)
+	go run ./cmd/ocean -out data/ocean -hycom-url "$(HYCOM_NCSS)"
