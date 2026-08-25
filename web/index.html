@@ -12,7 +12,8 @@
   </head>
   <body>
     <a class="skip-link" href="#controls">Skip to controls</a>
-    <div id="app">
+    <div id="app" class="is-bathymetry">
+      <div id="cesium"></div>
       <canvas
         id="terrain"
         tabindex="0"
@@ -26,6 +27,11 @@
           <p id="region-line">Mississippi Sound · synthetic seed</p>
         </div>
         <div class="chart-head-actions">
+          <fieldset id="view-mode" class="view-mode">
+            <legend class="visually-hidden">Renderer</legend>
+            <label><input type="radio" name="view-mode" value="globe" /> Globe</label>
+            <label><input type="radio" name="view-mode" value="bathymetry" checked /> Bathymetry</label>
+          </fieldset>
           <div class="nav-help" id="nav-help">
             <button
               type="button"
@@ -68,8 +74,9 @@
 
       <aside id="locator" class="locator" aria-label="Locator map of the northern Gulf of Mexico"></aside>
       <div id="geo-labels" class="geo-labels" aria-hidden="true"></div>
+      <div id="buoy-marks" hidden></div>
       <p id="caption" class="scene-caption">
-        Looking north · Mississippi Sound · synthetic depths · 12× vertical
+        Looking north · Mississippi Sound · synthetic depths · 1× vertical
       </p>
       <p id="credits" class="credits" hidden>
         Imagery: Esri, Maxar, Earthstar Geographics
@@ -87,17 +94,17 @@
               min="1"
               max="50"
               step="1"
-              value="12"
+              value="1"
             />
-            <output id="exaggeration-out" for="exaggeration">12×</output>
+            <output id="exaggeration-out" for="exaggeration">1×</output>
           </div>
         </div>
 
         <fieldset id="contours" class="control-block">
           <legend>Contours</legend>
           <div class="radio-row">
-            <label><input type="radio" name="contour" value="0" checked /> Off</label>
-            <label><input type="radio" name="contour" value="10" /> 10 m</label>
+            <label><input type="radio" name="contour" value="0" /> Off</label>
+            <label><input type="radio" name="contour" value="10" checked /> 10 m</label>
             <label><input type="radio" name="contour" value="50" /> 50 m</label>
             <label><input type="radio" name="contour" value="100" /> 100 m</label>
           </div>
@@ -107,8 +114,22 @@
           <legend>Satellite</legend>
           <div class="radio-row">
             <label><input type="radio" name="imagery" value="0" /> Off</label>
-            <label><input type="radio" name="imagery" value="0.45" checked /> Blend</label>
-            <label><input type="radio" name="imagery" value="0.88" /> On</label>
+            <label><input type="radio" name="imagery" value="0.45" /> Blend</label>
+            <label><input type="radio" name="imagery" value="0.88" checked /> On</label>
+          </div>
+        </fieldset>
+
+        <fieldset id="ocean" class="control-block">
+          <legend>Ocean</legend>
+          <div class="radio-row">
+            <span class="ocean-layer">Currents</span>
+            <label><input type="radio" name="currents" value="0" /> Off</label>
+            <label><input type="radio" name="currents" value="1" checked /> On</label>
+          </div>
+          <div class="radio-row">
+            <span class="ocean-layer">Buoys</span>
+            <label><input type="radio" name="buoys" value="0" /> Off</label>
+            <label><input type="radio" name="buoys" value="1" checked /> On</label>
           </div>
         </fieldset>
 
@@ -137,9 +158,10 @@
             Dauphin Island. The mainland waterline is the OpenStreetMap
             coastline, so the bays, bayous and river mouths are the real ones,
             and the islands follow their OpenStreetMap shorelines (Cat,
-            West/East Ship, Horn, Petit Bois, Dauphin, Deer). Depths are still a
+            West/East Ship, Horn, Petit Bois, Dauphin, Deer, Round). Depths are still a
             synthetic stand-in, not NOAA survey data. North is the mainland
-            (Bay St. Louis, Gulfport, Biloxi, Pascagoula).
+            from Pearlington through Gulfport and Pascagoula to Bayou La Batre.
+            Magenta ticks are the Louisiana and Alabama lines.
           </p>
           <h3>Moving around</h3>
           <p>
@@ -150,9 +172,9 @@
           <p>
             The surface is a <strong>heightfield</strong>. Each PNG tile stores depth in its
             RGB values (Mapzen Terrarium encoding). The GPU lifts every vertex from that
-            depth. Water is shaded as turbid Sound: sand shows in the shallows, channels
-            go olive, the Gulf goes darker. Beaches and dunes are sand. Satellite drapes
-            on land only — imagery over the Sound is mostly sunglint.
+            depth. Bathymetry tints that surface by depth (hypsometric colour, hillshade,
+            optional contours). Globe drapes Esri satellite imagery on the same heights
+            so land and water both sit on the displaced mesh.
           </p>
           <p>
             Zoom levels 6–12 are the same idea as a web map: more tiles, finer ground sample.
@@ -165,11 +187,21 @@
             as unaltered NOAA bathymetry. The coastline and island outlines are
             © OpenStreetMap contributors (ODbL).
           </p>
-          <h3>Satellite</h3>
+          <h3>Ocean overlay</h3>
           <p>
-            Optional and on by default (Blend). The server proxies Esri World Imagery for the same {z}/{x}/{y} as the
-            height tiles and drapes it on the mesh. Air-gapped hosts get a 404; the bathymetry
-            still works. Attribution: Esri, Maxar, Earthstar Geographics.
+            On bathymetry, a snapshot HYCOM surface-current field can be drawn as
+            particles. Motion is visually exaggerated and is not a time stepper.
+            NDBC stations appear as wind barbs. This viewer is
+            <strong>not an official NOAA product</strong>. Surface currents courtesy
+            of the HYCOM consortium; the dataset id comes from the snapshot
+            manifest when present. Buoy observations are NOAA NDBC open data.
+          </p>
+          <h3>Two views</h3>
+          <p>
+            <strong>Globe</strong> is CesiumJS on a WGS84 ellipsoid: Esri imagery
+            draped on the same Terrarium height tiles. No Cesium ion token.
+            <strong>Bathymetry</strong> is the custom three.js heightfield — hypsometric
+            tint only; satellite stays on Globe.
           </p>
           <h3>Export control</h3>
           <p>

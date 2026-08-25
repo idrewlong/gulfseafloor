@@ -4,6 +4,8 @@ export type ViewerControls = {
   sunAzimuth: number;
   sunAltitude: number;
   imageryOpacity: number;
+  currents: boolean;
+  buoys: boolean;
 };
 
 export type ControlsHandle = {
@@ -53,8 +55,9 @@ export function mountControls(
   const altitude = form.querySelector<HTMLInputElement>('#sun-altitude');
   const altitudeOut = form.querySelector<HTMLOutputElement>('#sun-altitude-out');
   const imagery = form.querySelector<HTMLFieldSetElement>('#imagery');
+  const ocean = form.querySelector<HTMLFieldSetElement>('#ocean');
 
-  if (!exaggeration || !exaggerationOut || !contour || !azimuth || !azimuthOut || !altitude || !altitudeOut || !imagery) {
+  if (!exaggeration || !exaggerationOut || !contour || !azimuth || !azimuthOut || !altitude || !altitudeOut || !imagery || !ocean) {
     throw new Error('control markup is incomplete');
   }
 
@@ -77,16 +80,32 @@ export function mountControls(
   if (imageryInput) {
     imageryInput.checked = true;
   }
+  const currentsInput = form.querySelector<HTMLInputElement>(
+    `input[name="currents"][value="${initial.currents ? '1' : '0'}"]`,
+  );
+  if (currentsInput) {
+    currentsInput.checked = true;
+  }
+  const buoysInput = form.querySelector<HTMLInputElement>(
+    `input[name="buoys"][value="${initial.buoys ? '1' : '0'}"]`,
+  );
+  if (buoysInput) {
+    buoysInput.checked = true;
+  }
 
   const read = (): ViewerControls => {
     const checked = form.querySelector<HTMLInputElement>('input[name="contour"]:checked');
     const img = form.querySelector<HTMLInputElement>('input[name="imagery"]:checked');
+    const currents = form.querySelector<HTMLInputElement>('input[name="currents"]:checked');
+    const buoys = form.querySelector<HTMLInputElement>('input[name="buoys"]:checked');
     return {
       exaggeration: Number(exaggeration.value),
       contourInterval: Number(checked?.value ?? 0),
       sunAzimuth: Number(azimuth.value),
       sunAltitude: Number(altitude.value),
       imageryOpacity: Number(img?.value ?? 0),
+      currents: currents?.value === '1',
+      buoys: buoys?.value === '1',
     };
   };
 

@@ -12,6 +12,11 @@ import {
 import { createHypsometricLUT } from './lut';
 import { QuadtreeLOD } from './terrain/QuadtreeLOD';
 import type { SharedTerrainUniforms } from './terrain/TerrainTile';
+import {
+  CAMERA_MAX_POLAR,
+  CAMERA_MIN_POLAR,
+  DEFAULT_EXAGGERATION,
+} from './viewerConfig';
 import { addCoastOverlay } from './overlay/coast';
 import {
   mountAbout,
@@ -25,12 +30,14 @@ import {
 import { mountLabels } from './ui/labels';
 import { mountLegend } from './ui/legend';
 import { mountLocator } from './ui/locator';
+import { mountGlobe, type GlobeHandle } from './globe/mountGlobe';
 
 const DEFAULT_DEPTH_MIN = -30;
 const DEFAULT_DEPTH_MAX = 4;
 const DEPTH_LIMIT_MIN = -80;
 const DEPTH_LIMIT_MAX = 12;
-const DEFAULT_EXAGGERATION = 12;
+const DEFAULT_IMAGERY_OPACITY = 0.88;
+const DEFAULT_CONTOUR_INTERVAL = 10;
 
 type ManifestRegion = {
   id?: string;
@@ -108,7 +115,7 @@ function poseCamera(
   animate: boolean,
 ): void {
   const origin = lonLatToLocal(ORIGIN.lon, ORIGIN.lat);
-  const target = new THREE.Vector3(origin.x, origin.y, -80);
+  const target = new THREE.Vector3(origin.x, origin.y, 0);
   const end = new THREE.Vector3(origin.x + 8_000, origin.y - 115_000, 48_000);
 
   controls.target.copy(target);
@@ -169,6 +176,8 @@ function clampLookAt(
 
 async function start(): Promise<void> {
   const canvas = requireEl<HTMLCanvasElement>('terrain');
+  const globeRoot = requireEl<HTMLElement>('cesium');
+  const app = requireEl<HTMLElement>('app');
   const statusEl = requireEl<HTMLElement>('status');
   const readoutEl = requireEl<HTMLElement>('readout');
   const regionEl = requireEl<HTMLElement>('region-line');
@@ -182,6 +191,7 @@ async function start(): Promise<void> {
   const labelsRoot = requireEl<HTMLElement>('geo-labels');
   const captionEl = requireEl<HTMLElement>('caption');
   const creditsEl = requireEl<HTMLElement>('credits');
+  const modeField = requireEl<HTMLFieldSetElement>('view-mode');
 
   const reduced = prefersReducedMotion();
   const manifest = await fetchManifest();
@@ -201,6 +211,13 @@ async function start(): Promise<void> {
     setStatus(statusEl, 'No tiles on disk — run `make tiles`', true);
   }
 
+  type ViewMode = 'globe' | 'bathymetry';
+  let viewMode: ViewMode = 'bathymetry';
+  let wantMode: ViewMode = 'bathymetry';
+  let bathymetryRunning = true;
+  let globe: GlobeHandle | null = null;
+  let globeStarting = false;
+
   const lut = createHypsometricLUT();
   const sunDir = new THREE.Vector3();
   applySun(sunDir, 315, 38);
@@ -209,13 +226,13 @@ async function start(): Promise<void> {
   const shared: SharedTerrainUniforms = {
     uColorLUT: { value: lut },
     uSunDir: { value: sunDir },
-    uContourInterval: { value: 0 },
+    uContourInterval: { value: DEFAULT_CONTOUR_INTERVAL },
     uDepthMin: { value: DEFAULT_DEPTH_MIN },
     uDepthMax: { value: DEFAULT_DEPTH_MAX },
     uExaggeration: { value: DEFAULT_EXAGGERATION },
     uFogColor: { value: fogColor },
     uFogDensity: { value: 0.0000032 },
-    uImageryOpacity: { value: 0.45 },
+    uImageryOpacity: { value: 0 },
   };
 
   const renderer = new THREE.WebGLRenderer({
@@ -228,6 +245,7 @@ async function start(): Promise<void> {
   renderer.setSize(canvas.clientWidth, canvas.clientHeight, false);
   renderer.setClearColor(0x9eb6be, 1);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
+  THREE.Texture.DEFAULT_ANISOTROPY = Math.min(8, renderer.capabilities.getMaxAnisotropy());
 
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(48, canvas.clientWidth / canvas.clientHeight, 200, 1_200_000);
@@ -239,7 +257,8 @@ async function start(): Promise<void> {
   controls.screenSpacePanning = false;
   controls.minDistance = 2_500;
   controls.maxDistance = 520_000;
-  controls.maxPolarAngle = Math.PI * 0.48;
+  controls.minPolarAngle = CAMERA_MIN_POLAR;
+  controls.maxPolarAngle = CAMERA_MAX_POLAR;
   controls.zoomToCursor = false;
   controls.listenToKeyEvents(canvas);
   canvas.addEventListener('pointerdown', () => {
@@ -255,13 +274,38 @@ async function start(): Promise<void> {
     maxZoom,
     dataVersion: manifest?.dataVersion,
   });
-  lod.setImageryEnabled(true);
+  lod.setImageryOpacity(0);
   addCoastOverlay(scene);
   mountLocator(locatorRoot);
   const labels = mountLabels(labelsRoot);
 
+  const setMode = (next: ViewMode): void => {
+    viewMode = next;
+    bathymetryRunning = next === 'bathymetry';
+    app.classList.toggle('is-globe', next === 'globe');
+    app.classList.toggle('is-bathymetry', next === 'bathymetry');
+    const globeRadio = modeField.querySelector<HTMLInputElement>('input[name="view-mode"][value="globe"]');
+    const bathyRadio = modeField.querySelector<HTMLInputElement>('input[name="view-mode"][value="bathymetry"]');
+    if (globeRadio && bathyRadio) {
+      globeRadio.checked = next === 'globe';
+      bathyRadio.checked = next === 'bathymetry';
+    }
+    if (next === 'globe') {
+      globe?.setActive(true);
+      globe?.resize();
+    } else {
+      globe?.setActive(false);
+      setReadout(readoutEl, null);
+    }
+    creditsEl.hidden = next !== 'globe' || Number(form.querySelector<HTMLInputElement>('input[name="imagery"]:checked')?.value) <= 0;
+  };
+  setMode(viewMode);
+
   const setCaption = (exag: number): void => {
-    captionEl.textContent = `Looking north · Mississippi Sound · synthetic depths · ${exag}× vertical`;
+    captionEl.textContent =
+      viewMode === 'globe'
+        ? `Globe · Mississippi Sound · Cesium · ${exag}× vertical`
+        : `Looking north · Mississippi Sound · synthetic depths · ${exag}× vertical`;
   };
   setCaption(DEFAULT_EXAGGERATION);
 
@@ -279,30 +323,103 @@ async function start(): Promise<void> {
   let exaggeration = DEFAULT_EXAGGERATION;
   mountControls(
     form,
-    { exaggeration: DEFAULT_EXAGGERATION, contourInterval: 0, sunAzimuth: 315, sunAltitude: 38, imageryOpacity: 0.45 },
+    { exaggeration: DEFAULT_EXAGGERATION, contourInterval: DEFAULT_CONTOUR_INTERVAL, sunAzimuth: 315, sunAltitude: 38, imageryOpacity: DEFAULT_IMAGERY_OPACITY, currents: false, buoys: false },
     (state: ViewerControls) => {
       exaggeration = state.exaggeration;
       shared.uExaggeration.value = state.exaggeration;
       shared.uContourInterval.value = state.contourInterval;
-      shared.uImageryOpacity.value = state.imageryOpacity;
+      lod.setImageryOpacity(0);
       applySun(sunDir, state.sunAzimuth, state.sunAltitude);
-      lod.setImageryEnabled(state.imageryOpacity > 0);
-      creditsEl.hidden = state.imageryOpacity <= 0;
+      globe?.setExaggeration(state.exaggeration);
+      globe?.setImageryOn(state.imageryOpacity > 0);
+      globe?.setSun(state.sunAzimuth, state.sunAltitude);
+      creditsEl.hidden = viewMode !== 'globe' || state.imageryOpacity <= 0;
       setCaption(state.exaggeration);
     },
   );
 
-  creditsEl.hidden = false;
   mountNavHelp(navHelp, navHelpToggle);
   mountAbout(about, aboutToggle);
 
-  setStatus(statusEl, 'Loading tiles…', false);
-  await lod.bootstrap();
-  if (!lod.hasTiles()) {
-    setStatus(statusEl, 'No tiles on disk — run `make tiles`', true);
-  } else {
-    setStatus(statusEl, null);
-  }
+  let lodReady = false;
+  const ensureBathymetry = async (): Promise<void> => {
+    if (lodReady) {
+      return;
+    }
+    setStatus(statusEl, 'Loading tiles…', false);
+    await lod.bootstrap();
+    lodReady = true;
+    if (!lod.hasTiles()) {
+      setStatus(statusEl, 'No tiles on disk — run `make tiles`', true);
+    } else {
+      setStatus(statusEl, null);
+    }
+  };
+
+  const ensureGlobe = async (): Promise<boolean> => {
+    if (globe) {
+      return true;
+    }
+    if (globeStarting) {
+      return false;
+    }
+    globeStarting = true;
+    setStatus(statusEl, 'Loading globe…', false);
+    try {
+      globe = await mountGlobe(globeRoot, {
+        aoi,
+        minZoom,
+        maxZoom,
+        dataVersion: manifest?.dataVersion,
+        exaggeration,
+        imageryOn: Number(form.querySelector<HTMLInputElement>('input[name="imagery"]:checked')?.value) > 0,
+        sunAzimuth: Number(form.querySelector<HTMLInputElement>('#sun-azimuth')?.value) || 315,
+        sunAltitude: Number(form.querySelector<HTMLInputElement>('#sun-altitude')?.value) || 38,
+        onPick: (sample) => {
+          if (viewMode === 'globe') {
+            setReadout(readoutEl, sample);
+          }
+        },
+      });
+      globe.setActive(viewMode === 'globe');
+      setStatus(statusEl, null);
+      return true;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Globe failed to start';
+      setStatus(statusEl, msg, true);
+      return false;
+    } finally {
+      globeStarting = false;
+    }
+  };
+
+  modeField.addEventListener('change', () => {
+    const checked = modeField.querySelector<HTMLInputElement>('input[name="view-mode"]:checked');
+    wantMode = checked?.value === 'globe' ? 'globe' : 'bathymetry';
+    void (async () => {
+      if (wantMode === 'bathymetry') {
+        await ensureBathymetry();
+        if (wantMode === 'bathymetry') {
+          setMode('bathymetry');
+          setCaption(exaggeration);
+        }
+        return;
+      }
+      const ok = await ensureGlobe();
+      if (wantMode !== 'globe') {
+        return;
+      }
+      if (!ok) {
+        setMode('bathymetry');
+        setCaption(exaggeration);
+        return;
+      }
+      setMode('globe');
+      setCaption(exaggeration);
+    })();
+  });
+
+  await ensureBathymetry();
 
   const pointer = new THREE.Vector2(-2, -2);
   const raycaster = new THREE.Raycaster();
@@ -326,12 +443,17 @@ async function start(): Promise<void> {
     renderer.setSize(w, h, false);
     camera.aspect = w / Math.max(1, h);
     camera.updateProjectionMatrix();
+    globe?.resize();
   };
   window.addEventListener('resize', onResize);
   onResize();
 
   const tick = (): void => {
     requestAnimationFrame(tick);
+    if (!bathymetryRunning) {
+      return;
+    }
+    camera.up.set(0, 0, 1);
     controls.update();
     clampLookAt(camera, controls, aoi);
     fitProjection(camera, controls);
@@ -348,4 +470,11 @@ async function start(): Promise<void> {
   tick();
 }
 
-void start();
+void start().catch((err: unknown) => {
+  const statusEl = document.getElementById('status');
+  if (statusEl) {
+    statusEl.hidden = false;
+    statusEl.classList.add('is-warn');
+    statusEl.textContent = err instanceof Error ? err.message : 'Viewer failed to start';
+  }
+});
