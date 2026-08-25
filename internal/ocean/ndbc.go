@@ -169,30 +169,42 @@ func parseRealtime2Row(id, line string) (Station, bool) {
 	if err1 != nil || err2 != nil || err3 != nil || err4 != nil || err5 != nil {
 		return Station{}, false
 	}
-	if month < 1 || month > 12 || day < 1 || day > 31 {
+	if month < 1 || month > 12 || day < 1 || day > 31 || hour < 0 || hour > 23 || minute < 0 || minute > 59 {
 		return Station{}, false
 	}
 	obs := time.Date(year, time.Month(month), day, hour, minute, 0, 0, time.UTC)
+	if obs.Year() != year || int(obs.Month()) != month || obs.Day() != day || obs.Hour() != hour || obs.Minute() != minute {
+		return Station{}, false
+	}
+	for i := 5; i < len(fields); i++ {
+		if _, ok := parseMeasurement(fields[i]); !ok {
+			return Station{}, false
+		}
+	}
 	st := Station{ID: id, ObsTime: &obs}
-	st.WDir = optionalFloat(fields, 5)
-	st.WSpd = optionalFloat(fields, 6)
-	st.Gst = optionalFloat(fields, 7)
-	st.WVHT = optionalFloat(fields, 8)
-	st.WTMP = optionalFloat(fields, 14)
+	st.WDir = measurementAt(fields, 5)
+	st.WSpd = measurementAt(fields, 6)
+	st.Gst = measurementAt(fields, 7)
+	st.WVHT = measurementAt(fields, 8)
+	st.WTMP = measurementAt(fields, 14)
 	return st, true
 }
 
-func optionalFloat(fields []string, i int) *float64 {
+func measurementAt(fields []string, i int) *float64 {
 	if i >= len(fields) {
 		return nil
 	}
-	s := fields[i]
+	v, _ := parseMeasurement(fields[i])
+	return v
+}
+
+func parseMeasurement(s string) (*float64, bool) {
 	if s == "" || s == "MM" {
-		return nil
+		return nil, true
 	}
 	v, err := strconv.ParseFloat(s, 64)
 	if err != nil {
-		return nil
+		return nil, false
 	}
-	return &v
+	return &v, true
 }

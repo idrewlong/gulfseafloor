@@ -94,6 +94,36 @@ not-a-row
 	}
 }
 
+func TestParseRealtime2SkipsRowWithInvalidHour(t *testing.T) {
+	raw := `#YY MM DD hh mm WDIR WSPD GST WVHT DPD APD MWD PRES ATMP WTMP
+2026 08 24 18 00 10 1.0 2.0 0.1 MM MM MM MM MM 20.0
+2026 08 24 99 00 20 2.0 3.0 0.2 MM MM MM MM MM 21.0
+`
+	st, err := ParseRealtime2("42040", strings.NewReader(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := time.Date(2026, 8, 24, 18, 0, 0, 0, time.UTC)
+	if st.ObsTime == nil || !st.ObsTime.Equal(want) || st.WDir == nil || *st.WDir != 10 {
+		t.Fatalf("hour=99 must not replace the previous row: %+v", st)
+	}
+}
+
+func TestParseRealtime2SkipsRowWithNonNumericMeasurement(t *testing.T) {
+	raw := `#YY MM DD hh mm WDIR WSPD GST WVHT DPD APD MWD PRES ATMP WTMP
+2026 08 24 18 00 10 1.0 2.0 0.1 MM MM MM MM MM 20.0
+2026 08 24 19 00 20 abc 3.0 0.2 MM MM MM MM MM 21.0
+`
+	st, err := ParseRealtime2("42040", strings.NewReader(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := time.Date(2026, 8, 24, 18, 0, 0, 0, time.UTC)
+	if st.ObsTime == nil || !st.ObsTime.Equal(want) || st.WSpd == nil || *st.WSpd != 1.0 {
+		t.Fatalf("WSPD=abc must skip that row: %+v", st)
+	}
+}
+
 func TestParseRealtime2RejectsHTML(t *testing.T) {
 	_, err := ParseRealtime2("WYCM6", strings.NewReader("<html><body>not ndbc</body></html>"))
 	if err == nil {
