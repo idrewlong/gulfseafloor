@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"time"
 )
 
 // DecodeCurrents reads currents.json. Unknown keys are ignored so Slice 2 can
@@ -14,6 +15,11 @@ func DecodeCurrents(r io.Reader) (Currents, error) {
 	if err := json.NewDecoder(r).Decode(&c); err != nil {
 		return Currents{}, fmt.Errorf("ocean: currents: %w", err)
 	}
+	valid, err := requireUTC(c.ValidTime)
+	if err != nil {
+		return Currents{}, fmt.Errorf("ocean: currents: validTime %w", err)
+	}
+	c.ValidTime = valid
 	if c.ValidTime.IsZero() {
 		return Currents{}, fmt.Errorf("ocean: currents: missing validTime")
 	}
@@ -42,6 +48,11 @@ func DecodeBuoys(r io.Reader) (Buoys, error) {
 	if err := json.NewDecoder(r).Decode(&b); err != nil {
 		return Buoys{}, fmt.Errorf("ocean: buoys: %w", err)
 	}
+	valid, err := requireUTC(b.ValidTime)
+	if err != nil {
+		return Buoys{}, fmt.Errorf("ocean: buoys: validTime %w", err)
+	}
+	b.ValidTime = valid
 	if b.Source.Name == "" {
 		return Buoys{}, fmt.Errorf("ocean: buoys: missing source.name")
 	}
@@ -52,6 +63,11 @@ func DecodeBuoys(r io.Reader) (Buoys, error) {
 		if !finite(s.Lon) || !finite(s.Lat) {
 			return Buoys{}, fmt.Errorf("ocean: buoys: station %s non-finite lon/lat", s.ID)
 		}
+		obs, err := requireUTCPtr(s.ObsTime)
+		if err != nil {
+			return Buoys{}, fmt.Errorf("ocean: buoys: station %s obsTime %w", s.ID, err)
+		}
+		b.Stations[i].ObsTime = obs
 	}
 	return b, nil
 }
@@ -62,10 +78,53 @@ func DecodeManifest(r io.Reader) (Manifest, error) {
 	if err := json.NewDecoder(r).Decode(&m); err != nil {
 		return Manifest{}, fmt.Errorf("ocean: manifest: %w", err)
 	}
+	retrieved, err := requireUTC(m.RetrievedAt)
+	if err != nil {
+		return Manifest{}, fmt.Errorf("ocean: manifest: retrievedAt %w", err)
+	}
+	m.RetrievedAt = retrieved
 	if m.RetrievedAt.IsZero() {
 		return Manifest{}, fmt.Errorf("ocean: manifest: missing retrievedAt")
 	}
+	if err := utcLayer(&m.Currents, "currents"); err != nil {
+		return Manifest{}, err
+	}
+	if err := utcLayer(&m.Buoys, "buoys"); err != nil {
+		return Manifest{}, err
+	}
 	return m, nil
+}
+
+func utcLayer(info *LayerInfo, name string) error {
+	t, err := requireUTCPtr(info.ValidTime)
+	if err != nil {
+		return fmt.Errorf("ocean: manifest: %s validTime %w", name, err)
+	}
+	info.ValidTime = t
+	return nil
+}
+
+// requireUTC accepts RFC3339 Z and +00:00; it rejects any non-zero offset.
+func requireUTC(t time.Time) (time.Time, error) {
+	if t.IsZero() {
+		return t, nil
+	}
+	_, offset := t.Zone()
+	if offset != 0 {
+		return time.Time{}, fmt.Errorf("must be RFC3339 UTC")
+	}
+	return t.UTC(), nil
+}
+
+func requireUTCPtr(t *time.Time) (*time.Time, error) {
+	if t == nil {
+		return nil, nil
+	}
+	utc, err := requireUTC(*t)
+	if err != nil {
+		return nil, err
+	}
+	return &utc, nil
 }
 
 func finite(v float64) bool {

@@ -65,6 +65,65 @@ func TestDecodeBuoysOmitsMissingFields(t *testing.T) {
 	}
 }
 
+func TestDecodeTimesRequireUTC(t *testing.T) {
+	want := time.Date(2026, 8, 24, 18, 0, 0, 0, time.UTC)
+	plusZero := `{
+	  "validTime": "2026-08-24T18:00:00+00:00",
+	  "source": {"name": "HYCOM", "dataset": "test", "url": "https://example.invalid/ncss"},
+	  "bbox": {"west": -89.7, "south": 29.95, "east": -87.85, "north": 30.52},
+	  "nx": 2, "ny": 1, "grid": "centers",
+	  "u": [0.12, null],
+	  "v": [-0.04, null]
+	}`
+	c, err := DecodeCurrents(strings.NewReader(plusZero))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !c.ValidTime.Equal(want) {
+		t.Fatalf("validTime %s", c.ValidTime)
+	}
+
+	offset := `{
+	  "validTime": "2026-08-24T18:00:00-05:00",
+	  "source": {"name": "HYCOM", "dataset": "test", "url": "https://example.invalid/ncss"},
+	  "bbox": {"west": -89.7, "south": 29.95, "east": -87.85, "north": 30.52},
+	  "nx": 2, "ny": 1, "grid": "centers",
+	  "u": [0.12, null],
+	  "v": [-0.04, null]
+	}`
+	if _, err := DecodeCurrents(strings.NewReader(offset)); err == nil {
+		t.Fatal("currents validTime -05:00 must be rejected")
+	}
+	if _, err := DecodeBuoys(strings.NewReader(`{
+	  "validTime": "2026-08-24T19:50:00-05:00",
+	  "source": {"name": "NDBC", "url": "https://www.ndbc.noaa.gov/"},
+	  "stations": []
+	}`)); err == nil {
+		t.Fatal("buoys validTime -05:00 must be rejected")
+	}
+	if _, err := DecodeBuoys(strings.NewReader(`{
+	  "validTime": "2026-08-24T19:50:00Z",
+	  "source": {"name": "NDBC", "url": "https://www.ndbc.noaa.gov/"},
+	  "stations": [{"id": "WYCM6", "lon": -89.081, "lat": 30.36, "obsTime": "2026-08-24T19:50:00-05:00"}]
+	}`)); err == nil {
+		t.Fatal("station obsTime -05:00 must be rejected")
+	}
+	if _, err := DecodeManifest(strings.NewReader(`{
+	  "retrievedAt": "2026-08-24T20:01:00-05:00",
+	  "currents": {"present": false},
+	  "buoys": {"present": false}
+	}`)); err == nil {
+		t.Fatal("manifest retrievedAt -05:00 must be rejected")
+	}
+	if _, err := DecodeManifest(strings.NewReader(`{
+	  "retrievedAt": "2026-08-24T20:01:00Z",
+	  "currents": {"present": true, "validTime": "2026-08-24T18:00:00-05:00"},
+	  "buoys": {"present": false}
+	}`)); err == nil {
+		t.Fatal("layer validTime -05:00 must be rejected")
+	}
+}
+
 func TestDecodeManifestAcceptsAbsentLayers(t *testing.T) {
 	raw := `{
 	  "retrievedAt": "2026-08-24T20:01:00Z",
