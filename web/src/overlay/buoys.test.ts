@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { buoyMarkEngaged, layoutBuoyVisibility, parseBuoysJson, type BuoyStation } from './buoys.ts';
+import { buoyMarkEngaged, engagedBuoyStation, layoutBuoyVisibility, parseBuoysJson, type BuoyStation } from './buoys.ts';
 import { BUOY_RANK } from './oceanUi.ts';
 
 describe('parseBuoysJson', () => {
@@ -92,5 +92,36 @@ describe('buoyMarkEngaged', () => {
 
   it('restores depth only when neither hover nor focus', () => {
     assert.equal(buoyMarkEngaged({ matches: () => false }), false);
+  });
+});
+
+describe('engagedBuoyStation', () => {
+  const a: BuoyStation = { id: 'A', lon: 0, lat: 0 };
+  const b: BuoyStation = { id: 'B', lon: 1, lat: 1 };
+
+  it('keeps focused buoy A when hover leaves buoy B', () => {
+    const station = engagedBuoyStation([
+      { station: a, matches: (sel) => sel === ':focus' },
+      { station: b, matches: () => false },
+    ]);
+    assert.equal(station?.id, 'A');
+  });
+
+  it('shows a hovered buoy while another remains focused', () => {
+    const station = engagedBuoyStation([
+      { station: a, matches: (sel) => sel === ':focus' },
+      { station: b, matches: (sel) => sel === ':hover' },
+    ]);
+    assert.equal(station?.id, 'B');
+  });
+
+  it('restores depth only when no mark is hovered or focused', () => {
+    assert.equal(
+      engagedBuoyStation([
+        { station: a, matches: () => false },
+        { station: b, matches: () => false },
+      ]),
+      null,
+    );
   });
 });

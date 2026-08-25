@@ -130,30 +130,32 @@ export function buoyMarkEngaged(btn: Pick<Element, 'matches'>): boolean {
   return btn.matches(':hover') || btn.matches(':focus');
 }
 
-function bindReadout(btn: HTMLButtonElement, station: BuoyStation): void {
-  const show = (): void => {
-    const el = document.getElementById('readout');
-    if (el) {
-      setBuoyReadout(el, buoyReadout(station));
+export type EngagedBuoyMark = {
+  station: BuoyStation;
+  matches: (selector: string) => boolean;
+};
+
+/** Hover wins over leftover focus. Null only when no mark is hovered or focused. */
+export function engagedBuoyStation(marks: readonly EngagedBuoyMark[]): BuoyStation | null {
+  let focused: BuoyStation | null = null;
+  for (const mark of marks) {
+    if (mark.matches(':hover')) {
+      return mark.station;
     }
-  };
-  const hide = (): void => {
-    const el = document.getElementById('readout');
-    if (el) {
-      setBuoyReadout(el, null);
+    if (focused == null && mark.matches(':focus')) {
+      focused = mark.station;
     }
-  };
-  const sync = (): void => {
-    if (buoyMarkEngaged(btn)) {
-      show();
-      return;
-    }
-    hide();
-  };
-  btn.addEventListener('pointerenter', sync);
-  btn.addEventListener('focus', sync);
-  btn.addEventListener('pointerleave', sync);
-  btn.addEventListener('blur', sync);
+  }
+  return focused;
+}
+
+function syncBuoyReadout(marks: readonly EngagedBuoyMark[]): void {
+  const el = document.getElementById('readout');
+  if (!el) {
+    return;
+  }
+  const station = engagedBuoyStation(marks);
+  setBuoyReadout(el, station ? buoyReadout(station) : null);
 }
 
 function makeMark(station: BuoyStation): HTMLButtonElement {
@@ -174,7 +176,6 @@ function makeMark(station: BuoyStation): HTMLButtonElement {
   id.className = 'buoy-id';
   id.textContent = station.id;
   btn.append(id);
-  bindReadout(btn, station);
   btn.hidden = true;
   return btn;
 }
@@ -186,6 +187,23 @@ export function mountBuoys(root: HTMLElement, stations: BuoyStation[]): BuoysHan
     root.append(btn);
     return btn;
   });
+
+  const marks = (): EngagedBuoyMark[] =>
+    buttons.flatMap((btn, i) => {
+      const station = stations[i];
+      return station ? [{ station, matches: (selector: string) => btn.matches(selector) }] : [];
+    });
+
+  const sync = (): void => {
+    syncBuoyReadout(marks());
+  };
+  for (const btn of buttons) {
+    btn.addEventListener('pointerenter', sync);
+    btn.addEventListener('focus', sync);
+    btn.addEventListener('pointerleave', sync);
+    btn.addEventListener('blur', sync);
+  }
+
   let enabled = true;
 
   const apply = (
