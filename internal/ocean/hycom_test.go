@@ -60,6 +60,69 @@ func TestParseHYCOMCSVRejectsEmptyGrid(t *testing.T) {
 	}
 }
 
+func TestParseHYCOMCSVRejectsNonFiniteLatLon(t *testing.T) {
+	src := Source{Name: "HYCOM"}
+	cases := []struct {
+		name string
+		csv  string
+	}{
+		{"NaN lat", hycomCSVWith("NaN", "-89.68", "0.10", "-0.02")},
+		{"Inf lat", hycomCSVWith("Inf", "-89.68", "0.10", "-0.02")},
+		{"NaN lon", hycomCSVWith("29.96", "NaN", "0.10", "-0.02")},
+		{"Inf lon", hycomCSVWith("29.96", "Inf", "0.10", "-0.02")},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := ParseHYCOMCSV(strings.NewReader(tc.csv), src); err == nil {
+				t.Fatal("non-finite lat/lon must be an error")
+			}
+		})
+	}
+}
+
+func TestParseHYCOMCSVRejectsMalformedVelocity(t *testing.T) {
+	src := Source{Name: "HYCOM"}
+	cases := []struct {
+		name string
+		csv  string
+		col  string
+	}{
+		{"invalid u", hycomCSVWith("29.96", "-89.68", "invalid", "-0.02"), "u"},
+		{"invalid v", hycomCSVWith("29.96", "-89.68", "0.10", "invalid"), "v"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := ParseHYCOMCSV(strings.NewReader(tc.csv), src)
+			if err == nil {
+				t.Fatal("malformed velocity must be an error")
+			}
+			msg := err.Error()
+			if !strings.Contains(msg, "row") || !strings.Contains(msg, tc.col) {
+				t.Fatalf("error must name row and column %s: %v", tc.col, err)
+			}
+		})
+	}
+}
+
+func TestParseHYCOMCSVBlankVelocityIsNil(t *testing.T) {
+	raw := hycomCSVWith("30.04", "-89.60", "", "")
+	c, err := ParseHYCOMCSV(strings.NewReader(raw), Source{Name: "HYCOM", Dataset: "test", URL: "https://example.invalid/ncss"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.U[3] != nil || c.V[3] != nil {
+		t.Fatal("blank velocity must become null cells")
+	}
+}
+
+func hycomCSVWith(lat, lon, u, v string) string {
+	return "time,latitude,longitude,water_u,water_v\n" +
+		"2026-08-24T18:00:00Z,29.96,-89.68,0.10,-0.02\n" +
+		"2026-08-24T18:00:00Z,29.96,-89.60,0.12,-0.01\n" +
+		"2026-08-24T18:00:00Z,30.04,-89.68,0.08,0.03\n" +
+		"2026-08-24T18:00:00Z," + lat + "," + lon + "," + u + "," + v + "\n"
+}
+
 func TestParseHYCOMCSVPassesDecodeCurrents(t *testing.T) {
 	f, err := os.Open("testdata/hycom.csv")
 	if err != nil {

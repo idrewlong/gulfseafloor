@@ -81,9 +81,23 @@ func ParseHYCOMCSV(r io.Reader, src Source) (Currents, error) {
 		if err != nil {
 			return Currents{}, fmt.Errorf("ocean: hycom: row %d: lat: %w", i+2, err)
 		}
+		if !finite(lat) {
+			return Currents{}, fmt.Errorf("ocean: hycom: row %d: lat: non-finite", i+2)
+		}
 		lon, err := strconv.ParseFloat(strings.TrimSpace(rec[lonCol]), 64)
 		if err != nil {
 			return Currents{}, fmt.Errorf("ocean: hycom: row %d: lon: %w", i+2, err)
+		}
+		if !finite(lon) {
+			return Currents{}, fmt.Errorf("ocean: hycom: row %d: lon: non-finite", i+2)
+		}
+		u, err := parseVelocity(rec[uCol])
+		if err != nil {
+			return Currents{}, fmt.Errorf("ocean: hycom: row %d: u: %w", i+2, err)
+		}
+		v, err := parseVelocity(rec[vCol])
+		if err != nil {
+			return Currents{}, fmt.Errorf("ocean: hycom: row %d: v: %w", i+2, err)
 		}
 		if _, ok := lonSeen[lon]; !ok {
 			lonSeen[lon] = struct{}{}
@@ -96,8 +110,8 @@ func ParseHYCOMCSV(r io.Reader, src Source) (Currents, error) {
 		cells = append(cells, hycomCell{
 			lon: lon,
 			lat: lat,
-			u:   parseVelocity(rec[uCol]),
-			v:   parseVelocity(rec[vCol]),
+			u:   u,
+			v:   v,
 		})
 	}
 
@@ -202,14 +216,20 @@ func parseHYCOMTime(s string) (time.Time, error) {
 	return t.UTC(), nil
 }
 
-func parseVelocity(s string) *float64 {
+func parseVelocity(s string) (*float64, error) {
 	s = strings.TrimSpace(s)
 	if s == "" {
-		return nil
+		return nil, nil
 	}
 	v, err := strconv.ParseFloat(s, 64)
-	if err != nil || math.IsNaN(v) || math.IsInf(v, 0) {
-		return nil
+	if err != nil {
+		return nil, err
 	}
-	return &v
+	if math.IsNaN(v) {
+		return nil, nil
+	}
+	if math.IsInf(v, 0) {
+		return nil, fmt.Errorf("non-finite")
+	}
+	return &v, nil
 }
