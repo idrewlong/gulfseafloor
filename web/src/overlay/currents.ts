@@ -75,7 +75,8 @@ function velocityTexture(grid: VelocityGrid): THREE.DataTexture {
   tex.magFilter = THREE.LinearFilter;
   tex.minFilter = THREE.LinearFilter;
   tex.generateMipmaps = false;
-  tex.flipY = true;
+  // Packed south-to-north (iy=0 first). flipY false so WebGL v=0 is that first row.
+  tex.flipY = false;
   tex.wrapS = THREE.ClampToEdgeWrapping;
   tex.wrapT = THREE.ClampToEdgeWrapping;
   tex.needsUpdate = true;

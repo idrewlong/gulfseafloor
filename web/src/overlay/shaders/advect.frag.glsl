@@ -56,6 +56,7 @@ vec4 sampleVel(float lon, float lat) {
   float nx = uVelSize.x;
   float ny = uVelSize.y;
   float fx = nx <= 1.0 ? 0.0 : ((lon - uGridWest) / (uGridEast - uGridWest)) * (nx - 1.0);
+  // fy=0 at the south edge → UV v=0, which is the first packed row (iy=0).
   float fy = ny <= 1.0 ? 0.0 : ((lat - uGridSouth) / (uGridNorth - uGridSouth)) * (ny - 1.0);
   vec2 velUv = (vec2(fx, fy) + 0.5) / vec2(nx, ny);
   return texture(uVelTex, velUv);
