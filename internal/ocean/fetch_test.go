@@ -42,6 +42,36 @@ func TestFetchSnapshotUsesFixtures(t *testing.T) {
 	}
 }
 
+func TestFetchSnapshotRejectsDisjointCurrentsBBox(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ncss", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`time,latitude,longitude,water_u,water_v
+2026-08-24T18:00:00Z,0.00,0.00,0.10,-0.02
+2026-08-24T18:00:00Z,0.00,1.00,0.12,-0.01
+2026-08-24T18:00:00Z,1.00,0.00,0.08,0.03
+2026-08-24T18:00:00Z,1.00,1.00,0.09,0.01
+`))
+	})
+	mux.HandleFunc("/data/stations/station_table.txt", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "testdata/station_table.txt")
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	out := t.TempDir()
+	aoi := BBox{West: -89.7, South: 29.95, East: -87.85, North: 30.52}
+	err := FetchSnapshot(context.Background(), srv.Client(), Endpoints{
+		HYCOM:           srv.URL + "/ncss",
+		StationTable:    srv.URL + "/data/stations/station_table.txt",
+		Realtime2Prefix: srv.URL + "/data/realtime2/",
+	}, aoi, out)
+	if err == nil {
+		t.Fatal("HYCOM bbox that does not intersect the AOI must be an error")
+	}
+	if _, statErr := os.Stat(filepath.Join(out, "currents.json")); !os.IsNotExist(statErr) {
+		t.Fatal("disjoint HYCOM bbox must not write a snapshot")
+	}
+}
+
 func TestFetchSnapshotRejectsOversizedBody(t *testing.T) {
 	dir := t.TempDir()
 	u0, v0 := 0.1, 0.0

@@ -18,7 +18,7 @@ import {
   DEFAULT_EXAGGERATION,
 } from './viewerConfig';
 import { addCoastOverlay } from './overlay/coast';
-import { mountCurrents, type CurrentsHandle } from './overlay/currents';
+import { detectFloatOk, mountCurrents, type CurrentsHandle } from './overlay/currents';
 import { velocityGridFromJson } from './overlay/currentsField';
 import { mountBuoys, parseBuoysJson, type BuoysHandle } from './overlay/buoys';
 import { availabilityFromHttp, defaultOn, oceanCaption, unavailableOceanResponse } from './overlay/oceanUi';
@@ -93,17 +93,6 @@ async function fetchOk(url: string): Promise<Response> {
     return await fetch(url);
   } catch {
     return unavailableOceanResponse();
-  }
-}
-
-function detectFloatOk(renderer: THREE.WebGLRenderer): boolean {
-  try {
-    return (
-      renderer.extensions.has('EXT_color_buffer_float') ||
-      renderer.extensions.has('WEBGL_color_buffer_float')
-    );
-  } catch {
-    return true;
   }
 }
 
@@ -337,59 +326,19 @@ async function start(): Promise<void> {
   const labels = mountLabels(labelsRoot);
 
   const floatOk = detectFloatOk(renderer);
-  const [currentsRes, buoysRes] = await Promise.all([
+  const oceanFetches = Promise.all([
     fetchOk('/api/ocean/currents'),
     fetchOk('/api/ocean/buoys'),
   ]);
-  const httpAvail = availabilityFromHttp(currentsRes.status, buoysRes.status);
-  let currentsRaw: unknown = null;
-  let buoysRaw: unknown = null;
-  if (httpAvail.currents) {
-    try {
-      currentsRaw = await currentsRes.json();
-    } catch {
-      currentsRaw = null;
-    }
-  }
-  if (httpAvail.buoys) {
-    try {
-      buoysRaw = await buoysRes.json();
-    } catch {
-      buoysRaw = null;
-    }
-  }
-  const grid = velocityGridFromJson(currentsRaw);
-  const buoysParsed = parseBuoysJson(buoysRaw);
-  const avail = { currents: grid != null, buoys: buoysParsed != null };
-  const layersOn = defaultOn(avail);
-  setOceanRadios(form, 'currents', avail.currents, layersOn.currents);
-  setOceanRadios(form, 'buoys', avail.buoys, layersOn.buoys);
 
   let currentsHandle: CurrentsHandle | null = null;
-  if (grid) {
-    currentsHandle = mountCurrents(scene, grid, { reducedMotion: reduced, floatOk });
-    currentsHandle.setEnabled(layersOn.currents);
-  }
   let buoysHandle: BuoysHandle | null = null;
-  if (buoysParsed) {
-    buoysHandle = mountBuoys(buoyMarks, buoysParsed.stations);
-    buoysHandle.setEnabled(layersOn.buoys);
-    buoyMarks.hidden = !layersOn.buoys;
-  } else {
-    buoyMarks.hidden = true;
-  }
-
-  const currentsValid = grid ? oceanValidTime(currentsRaw) : null;
-  const buoysValid = buoysParsed?.validTime ?? null;
-  const datasetId = hycomDatasetId(currentsRaw);
-  if (datasetId) {
-    const dsEl = document.getElementById('hycom-dataset');
-    if (dsEl) {
-      dsEl.textContent = datasetId;
-    }
-  }
-
-  let oceanOn = { currents: layersOn.currents, buoys: layersOn.buoys };
+  let currentsValid: string | null = null;
+  let buoysValid: string | null = null;
+  let oceanOn = { currents: false, buoys: false };
+  setOceanRadios(form, 'currents', false, false);
+  setOceanRadios(form, 'buoys', false, false);
+  buoyMarks.hidden = true;
 
   const setMode = (next: ViewMode): void => {
     viewMode = next;
@@ -554,6 +503,58 @@ async function start(): Promise<void> {
       setCaption(exaggeration);
     })();
   });
+
+  void (async () => {
+    const [currentsRes, buoysRes] = await oceanFetches;
+    const httpAvail = availabilityFromHttp(currentsRes.status, buoysRes.status);
+    let currentsRaw: unknown = null;
+    let buoysRaw: unknown = null;
+    if (httpAvail.currents) {
+      try {
+        currentsRaw = await currentsRes.json();
+      } catch {
+        currentsRaw = null;
+      }
+    }
+    if (httpAvail.buoys) {
+      try {
+        buoysRaw = await buoysRes.json();
+      } catch {
+        buoysRaw = null;
+      }
+    }
+    const grid = velocityGridFromJson(currentsRaw);
+    const buoysParsed = parseBuoysJson(buoysRaw);
+    const avail = { currents: grid != null, buoys: buoysParsed != null };
+    const layersOn = defaultOn(avail);
+    setOceanRadios(form, 'currents', avail.currents, layersOn.currents);
+    setOceanRadios(form, 'buoys', avail.buoys, layersOn.buoys);
+
+    if (grid) {
+      currentsHandle = mountCurrents(scene, grid, { reducedMotion: reduced, floatOk });
+      currentsHandle.setEnabled(viewMode === 'bathymetry' && layersOn.currents);
+    }
+    if (buoysParsed) {
+      buoysHandle = mountBuoys(buoyMarks, buoysParsed.stations);
+      const showBuoys = viewMode === 'bathymetry' && layersOn.buoys;
+      buoysHandle.setEnabled(showBuoys);
+      buoyMarks.hidden = !showBuoys;
+    } else {
+      buoyMarks.hidden = true;
+    }
+
+    currentsValid = grid ? oceanValidTime(currentsRaw) : null;
+    buoysValid = buoysParsed?.validTime ?? null;
+    const datasetId = hycomDatasetId(currentsRaw);
+    if (datasetId) {
+      const dsEl = document.getElementById('hycom-dataset');
+      if (dsEl) {
+        dsEl.textContent = datasetId;
+      }
+    }
+    oceanOn = { currents: layersOn.currents, buoys: layersOn.buoys };
+    setCaption(exaggeration);
+  })();
 
   await ensureBathymetry();
 

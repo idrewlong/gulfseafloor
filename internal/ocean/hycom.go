@@ -76,6 +76,8 @@ func ParseHYCOMCSV(r io.Reader, src Source) (Currents, error) {
 		}
 		if validTime.IsZero() {
 			validTime = t
+		} else if !t.Equal(validTime) {
+			return Currents{}, fmt.Errorf("ocean: hycom: row %d: time differs from first row", i+2)
 		}
 		lat, err := strconv.ParseFloat(strings.TrimSpace(rec[latCol]), 64)
 		if err != nil {

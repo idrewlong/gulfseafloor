@@ -52,6 +52,16 @@ time,latitude,longitude,water_u,water_v
 	}
 }
 
+func TestParseHYCOMCSVRejectsMixedTimes(t *testing.T) {
+	raw := `time,latitude,longitude,water_u,water_v
+2026-08-24T18:00:00Z,29.96,-89.68,0.10,-0.02
+2026-08-24T21:00:00Z,29.96,-89.60,0.12,-0.01
+`
+	if _, err := ParseHYCOMCSV(strings.NewReader(raw), Source{Name: "HYCOM"}); err == nil {
+		t.Fatal("later row with a different time must be an error")
+	}
+}
+
 func TestParseHYCOMCSVRejectsEmptyGrid(t *testing.T) {
 	raw := `time,latitude,longitude,water_u,water_v
 `

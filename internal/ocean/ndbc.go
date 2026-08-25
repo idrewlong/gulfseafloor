@@ -42,6 +42,11 @@ func (b BBox) Contains(lon, lat float64) bool {
 	return lon >= b.West && lon <= b.East && lat >= b.South && lat <= b.North
 }
 
+// Intersects reports whether b and o overlap in longitude and latitude.
+func (b BBox) Intersects(o BBox) bool {
+	return b.West < o.East && o.West < b.East && b.South < o.North && o.South < b.North
+}
+
 // ParseStationTable keeps pipe-delimited NDBC station rows whose location
 // falls in margin. Comment lines starting with # are skipped.
 func ParseStationTable(r io.Reader, margin BBox) ([]TableRow, error) {

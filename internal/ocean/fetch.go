@@ -47,6 +47,9 @@ func FetchSnapshot(ctx context.Context, client *http.Client, ep Endpoints, aoi B
 	if err != nil {
 		return err
 	}
+	if !currents.BBox.Intersects(aoi) {
+		return fmt.Errorf("ocean: fetch hycom: bbox does not intersect AOI")
+	}
 
 	tableBody, status, err := getCapped(ctx, client, ep.StationTable, stationTableLimit)
 	if err != nil {

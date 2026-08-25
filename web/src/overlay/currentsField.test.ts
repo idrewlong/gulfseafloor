@@ -32,6 +32,19 @@ describe('sampleUV', () => {
     const g: VelocityGrid = { ...grid, u: [null, 1, 1, 1], v: [null, 0, 0, 0] };
     assert.equal(sampleUV(g, -90, 30), null);
   });
+  it('bilinear-samples a fractional interior point on a non-uniform 2×2 grid', () => {
+    const g: VelocityGrid = {
+      nx: 2,
+      ny: 2,
+      bbox: { west: -90, south: 30, east: -88, north: 32 },
+      u: [0, 1, 2, 3],
+      v: [0, 4, 8, 12],
+    };
+    const p = sampleUV(g, -89.5, 31.5);
+    assert.ok(p);
+    assert.equal(p.u, 1.75);
+    assert.equal(p.v, 7);
+  });
 });
 
 describe('advect', () => {

@@ -2,12 +2,12 @@ import * as THREE from 'three';
 import { AOI, ORIGIN, lonLatToLocal } from '../geo';
 import {
   FLOW_SCALE,
-  PARTICLE_COUNT,
   PARTICLE_MAX_AGE,
   advect,
   staticArrows,
   type VelocityGrid,
 } from './currentsField';
+import { makeTrailGeometry } from './currentsGpu';
 import advectFrag from './shaders/advect.frag.glsl?raw';
 import trailVert from './shaders/trail.vert.glsl?raw';
 import trailFrag from './shaders/trail.frag.glsl?raw';
@@ -22,6 +22,8 @@ void main() {
   gl_Position = vec4(position.xy, 0.0, 1.0);
 }
 `;
+
+export { detectFloatOk, makeTrailGeometry } from './currentsGpu';
 
 export type CurrentsHandle = {
   setEnabled(on: boolean): void;
@@ -106,22 +108,7 @@ function makeStateRT(): THREE.WebGLRenderTarget {
   return rt;
 }
 
-function makeTrailGeometry(): THREE.BufferGeometry {
-  const ids = new Float32Array(PARTICLE_COUNT * 2);
-  const ends = new Float32Array(PARTICLE_COUNT * 2);
-  for (let i = 0; i < PARTICLE_COUNT; i++) {
-    ids[i * 2] = i;
-    ids[i * 2 + 1] = i;
-    ends[i * 2] = 0;
-    ends[i * 2 + 1] = 1;
-  }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('aId', new THREE.BufferAttribute(ids, 1));
-  geo.setAttribute('aEnd', new THREE.BufferAttribute(ends, 1));
-  return geo;
-}
-
-function makeStaticArrows(grid: VelocityGrid): THREE.Group {
+export function makeStaticArrows(grid: VelocityGrid): THREE.Group {
   const group = new THREE.Group();
   group.name = 'currents-arrows';
   const pts: number[] = [];
