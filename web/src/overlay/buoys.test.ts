@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { layoutBuoyVisibility, parseBuoysJson, type BuoyStation } from './buoys.ts';
+import { buoyMarkEngaged, layoutBuoyVisibility, parseBuoysJson, type BuoyStation } from './buoys.ts';
 import { BUOY_RANK } from './oceanUi.ts';
 
 describe('parseBuoysJson', () => {
@@ -72,5 +72,25 @@ describe('layoutBuoyVisibility', () => {
     );
     assert.equal(visible.has(0), true);
     assert.equal(visible.has(1000), false);
+  });
+});
+
+describe('buoyMarkEngaged', () => {
+  it('keeps the readout while hovered even if focus is gone', () => {
+    assert.equal(
+      buoyMarkEngaged({ matches: (sel) => sel === ':hover' }),
+      true,
+    );
+  });
+
+  it('keeps the readout while focused even if hover is gone', () => {
+    assert.equal(
+      buoyMarkEngaged({ matches: (sel) => sel === ':focus' }),
+      true,
+    );
+  });
+
+  it('restores depth only when neither hover nor focus', () => {
+    assert.equal(buoyMarkEngaged({ matches: () => false }), false);
   });
 });

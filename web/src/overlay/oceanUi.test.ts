@@ -7,6 +7,7 @@ import {
   defaultOn,
   formatValidZ,
   oceanCaption,
+  unavailableOceanResponse,
 } from './oceanUi.ts';
 
 describe('BUOY_RANK', () => {
@@ -35,6 +36,18 @@ describe('defaultOn', () => {
   it('is on iff the layer is available', () => {
     assert.deepEqual(defaultOn({ currents: true, buoys: false }), { currents: true, buoys: false });
     assert.deepEqual(defaultOn({ currents: false, buoys: true }), { currents: false, buoys: true });
+  });
+});
+
+describe('unavailableOceanResponse', () => {
+  it('is 404 so fetch failures disable both layers', () => {
+    const res = unavailableOceanResponse();
+    assert.equal(res.status, 404);
+    assert.deepEqual(availabilityFromHttp(res.status, res.status), { currents: false, buoys: false });
+  });
+
+  it('does not use status 0, which Response rejects', () => {
+    assert.throws(() => new Response(null, { status: 0 }));
   });
 });
 

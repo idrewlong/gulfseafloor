@@ -15,6 +15,11 @@ export function defaultOn(avail: LayerAvailability): { currents: boolean; buoys:
   return { currents: avail.currents, buoys: avail.buoys };
 }
 
+/** Same as a missing snapshot. `Response` status 0 is invalid and throws. */
+export function unavailableOceanResponse(): Response {
+  return new Response(null, { status: 404 });
+}
+
 export function formatValidZ(iso: string): string {
   const d = new Date(iso);
   const hh = String(d.getUTCHours()).padStart(2, '0');

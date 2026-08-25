@@ -125,6 +125,11 @@ export function layoutBuoyVisibility(
   return { visible, candidates, positions };
 }
 
+/** Buoy readout wins while the mark is hovered or focused. */
+export function buoyMarkEngaged(btn: Pick<Element, 'matches'>): boolean {
+  return btn.matches(':hover') || btn.matches(':focus');
+}
+
 function bindReadout(btn: HTMLButtonElement, station: BuoyStation): void {
   const show = (): void => {
     const el = document.getElementById('readout');
@@ -138,14 +143,17 @@ function bindReadout(btn: HTMLButtonElement, station: BuoyStation): void {
       setBuoyReadout(el, null);
     }
   };
-  btn.addEventListener('pointerenter', show);
-  btn.addEventListener('focus', show);
-  btn.addEventListener('pointerleave', () => {
-    if (document.activeElement !== btn) {
-      hide();
+  const sync = (): void => {
+    if (buoyMarkEngaged(btn)) {
+      show();
+      return;
     }
-  });
-  btn.addEventListener('blur', hide);
+    hide();
+  };
+  btn.addEventListener('pointerenter', sync);
+  btn.addEventListener('focus', sync);
+  btn.addEventListener('pointerleave', sync);
+  btn.addEventListener('blur', sync);
 }
 
 function makeMark(station: BuoyStation): HTMLButtonElement {

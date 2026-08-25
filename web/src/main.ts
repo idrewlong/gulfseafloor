@@ -21,7 +21,7 @@ import { addCoastOverlay } from './overlay/coast';
 import { mountCurrents, type CurrentsHandle } from './overlay/currents';
 import { velocityGridFromJson } from './overlay/currentsField';
 import { mountBuoys, parseBuoysJson, type BuoysHandle } from './overlay/buoys';
-import { availabilityFromHttp, defaultOn, oceanCaption } from './overlay/oceanUi';
+import { availabilityFromHttp, defaultOn, oceanCaption, unavailableOceanResponse } from './overlay/oceanUi';
 import {
   mountAbout,
   mountControls,
@@ -92,7 +92,7 @@ async function fetchOk(url: string): Promise<Response> {
   try {
     return await fetch(url);
   } catch {
-    return new Response(null, { status: 0 });
+    return unavailableOceanResponse();
   }
 }
 
@@ -130,17 +130,11 @@ function oceanValidTime(raw: unknown): string | null {
   return null;
 }
 
-function hycomDatasetId(currentsRaw: unknown, manifestRaw: unknown): string | null {
+function hycomDatasetId(currentsRaw: unknown): string | null {
   if (currentsRaw && typeof currentsRaw === 'object' && 'source' in currentsRaw) {
     const dataset = (currentsRaw as { source?: { dataset?: unknown } }).source?.dataset;
     if (typeof dataset === 'string' && dataset !== '') {
       return dataset;
-    }
-  }
-  if (manifestRaw && typeof manifestRaw === 'object' && 'attribution' in manifestRaw) {
-    const attr = (manifestRaw as { attribution?: unknown }).attribution;
-    if (Array.isArray(attr) && typeof attr[0] === 'string' && attr[0] !== '') {
-      return attr[0];
     }
   }
   return null;
@@ -343,15 +337,13 @@ async function start(): Promise<void> {
   const labels = mountLabels(labelsRoot);
 
   const floatOk = detectFloatOk(renderer);
-  const [currentsRes, buoysRes, oceanManRes] = await Promise.all([
+  const [currentsRes, buoysRes] = await Promise.all([
     fetchOk('/api/ocean/currents'),
     fetchOk('/api/ocean/buoys'),
-    fetchOk('/api/ocean/manifest'),
   ]);
   const httpAvail = availabilityFromHttp(currentsRes.status, buoysRes.status);
   let currentsRaw: unknown = null;
   let buoysRaw: unknown = null;
-  let oceanManRaw: unknown = null;
   if (httpAvail.currents) {
     try {
       currentsRaw = await currentsRes.json();
@@ -364,13 +356,6 @@ async function start(): Promise<void> {
       buoysRaw = await buoysRes.json();
     } catch {
       buoysRaw = null;
-    }
-  }
-  if (oceanManRes.status === 200) {
-    try {
-      oceanManRaw = await oceanManRes.json();
-    } catch {
-      oceanManRaw = null;
     }
   }
   const grid = velocityGridFromJson(currentsRaw);
@@ -396,7 +381,7 @@ async function start(): Promise<void> {
 
   const currentsValid = grid ? oceanValidTime(currentsRaw) : null;
   const buoysValid = buoysParsed?.validTime ?? null;
-  const datasetId = hycomDatasetId(currentsRaw, oceanManRaw);
+  const datasetId = hycomDatasetId(currentsRaw);
   if (datasetId) {
     const dsEl = document.getElementById('hycom-dataset');
     if (dsEl) {
