@@ -22,6 +22,9 @@ type Config struct {
 	ImageryEnabled bool
 	// ImageryTemplate is fmt.Sprintf'd with (z, y, x). Empty → Esri World Imagery.
 	ImageryTemplate string
+	// OceanDir is the snapshot JSON root (currents.json, buoys.json, manifest.json).
+	// Default: data/ocean. Missing files are not a startup failure.
+	OceanDir string
 }
 
 func (c Config) withDefaults() Config {
@@ -30,6 +33,9 @@ func (c Config) withDefaults() Config {
 	}
 	if c.WebDir == "" {
 		c.WebDir = "web/dist"
+	}
+	if c.OceanDir == "" {
+		c.OceanDir = "data/ocean"
 	}
 	if c.TileWorkers <= 0 {
 		c.TileWorkers = runtime.GOMAXPROCS(0)

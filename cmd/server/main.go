@@ -34,13 +34,14 @@ func main() {
 
 	addr := env("GULF_ADDR", ":8080")
 	cfg := server.Config{
-		TileDir:     env("GULF_TILE_DIR", "data/tiles"),
-		WebDir:      env("GULF_WEB_DIR", "web/dist"),
-		Embed:       webFS,
+		TileDir:         env("GULF_TILE_DIR", "data/tiles"),
+		WebDir:          env("GULF_WEB_DIR", "web/dist"),
+		Embed:           webFS,
 		CORSOrigin:      os.Getenv("GULF_CORS_ORIGIN"),
 		TileWorkers:     envInt("GULF_TILE_WORKERS", 0),
 		ImageryEnabled:  os.Getenv("GULF_IMAGERY") != "0",
 		ImageryTemplate: os.Getenv("GULF_IMAGERY_URL"),
+		OceanDir:        env("GULF_OCEAN_DIR", "data/ocean"),
 	}
 
 	srv := &http.Server{
