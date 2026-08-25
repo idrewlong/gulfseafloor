@@ -120,8 +120,10 @@ body {
   display: none;
 }
 
-#app.is-globe #ocean {
-  display: none;
+#app.is-globe #ocean { display: none; }
+#app.is-globe #buoy-marks {
+  visibility: hidden;
+  pointer-events: none;
 }
 
 #app.is-bathymetry .credits {
@@ -350,6 +352,15 @@ body {
   letter-spacing: 0.04em;
   font-variant-numeric: tabular-nums;
   line-height: 1.05;
+}
+
+.readout-buoy {
+  white-space: pre-line;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  line-height: 1.35;
+  max-width: 240px;
 }
 
 .status {
@@ -703,10 +714,46 @@ body {
   inset: 0;
   pointer-events: none;
   z-index: 4;
+  overflow: hidden;
 }
 
 #buoy-marks button {
   pointer-events: auto;
+}
+
+.buoy-mark {
+  position: absolute;
+  left: 0;
+  top: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--land);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  transform: translate(-50%, -50%);
+  text-shadow: 0 1px 0 #071018, 0 0 8px #071018;
+}
+
+.buoy-mark:focus-visible {
+  outline: 1px solid var(--land);
+  outline-offset: 2px;
+}
+
+.buoy-barb {
+  width: 40px;
+  height: 40px;
+  display: block;
+}
+
+.buoy-id {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .geo-label {

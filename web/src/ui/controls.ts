@@ -213,10 +213,48 @@ export function mountAbout(dialog: HTMLDialogElement, toggle: HTMLButtonElement)
   });
 }
 
+function restoreDepthReadout(el: HTMLElement): void {
+  if (el.querySelector('.readout-ll')) {
+    el.querySelector('.readout-buoy')?.remove();
+    return;
+  }
+  el.replaceChildren();
+  const ll = document.createElement('span');
+  ll.className = 'readout-ll';
+  ll.textContent = '—';
+  const depth = document.createElement('span');
+  depth.className = 'readout-depth';
+  depth.textContent = '—';
+  el.append(ll, depth);
+}
+
+/** Buoy focus/hover wins over depth pick until blur/leave. */
+export function setBuoyReadout(el: HTMLElement, text: string | null): void {
+  if (text != null) {
+    el.dataset.buoy = '1';
+    let node = el.querySelector<HTMLElement>('.readout-buoy');
+    if (!node) {
+      el.replaceChildren();
+      node = document.createElement('span');
+      node.className = 'readout-buoy';
+      el.append(node);
+    }
+    if (node.textContent !== text) {
+      node.textContent = text;
+    }
+    return;
+  }
+  delete el.dataset.buoy;
+  restoreDepthReadout(el);
+}
+
 export function setReadout(
   el: HTMLElement,
   sample: { lon: number; lat: number; elevation: number | null } | null,
 ): void {
+  if (el.dataset.buoy === '1') {
+    return;
+  }
   const llEl = el.querySelector('.readout-ll');
   const depthEl = el.querySelector('.readout-depth');
   const ll = sample ? `${formatLat(sample.lat)} ${formatLon(sample.lon)}` : '—';

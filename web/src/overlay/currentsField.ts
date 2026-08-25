@@ -15,6 +15,58 @@ export type VelocityGrid = {
   v: (number | null)[];
 };
 
+function finiteOrNull(value: unknown): number | null {
+  if (value == null) {
+    return null;
+  }
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+/** Map `/api/ocean/currents` JSON onto the client grid. Null cells stay null. */
+export function velocityGridFromJson(raw: unknown): VelocityGrid | null {
+  if (raw == null || typeof raw !== 'object') {
+    return null;
+  }
+  const o = raw as {
+    bbox?: { west?: unknown; south?: unknown; east?: unknown; north?: unknown };
+    nx?: unknown;
+    ny?: unknown;
+    grid?: unknown;
+    u?: unknown;
+    v?: unknown;
+  };
+  if (o.grid !== 'centers') {
+    return null;
+  }
+  const nx = o.nx;
+  const ny = o.ny;
+  if (typeof nx !== 'number' || typeof ny !== 'number' || !Number.isInteger(nx) || !Number.isInteger(ny) || nx <= 0 || ny <= 0) {
+    return null;
+  }
+  const b = o.bbox;
+  if (
+    !b ||
+    typeof b.west !== 'number' ||
+    typeof b.south !== 'number' ||
+    typeof b.east !== 'number' ||
+    typeof b.north !== 'number' ||
+    b.west >= b.east ||
+    b.south >= b.north
+  ) {
+    return null;
+  }
+  if (!Array.isArray(o.u) || !Array.isArray(o.v) || o.u.length !== nx * ny || o.v.length !== nx * ny) {
+    return null;
+  }
+  return {
+    nx,
+    ny,
+    bbox: { west: b.west, south: b.south, east: b.east, north: b.north },
+    u: o.u.map(finiteOrNull),
+    v: o.v.map(finiteOrNull),
+  };
+}
+
 function cellCentre(grid: VelocityGrid, ix: number, iy: number): { lon: number; lat: number } {
   const { nx, ny, bbox } = grid;
   const lon = nx <= 1 ? bbox.west : bbox.west + (ix / (nx - 1)) * (bbox.east - bbox.west);

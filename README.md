@@ -95,6 +95,9 @@ table, the allowed/not-allowed boundary, and the empty retrieval-date column.
 │    /soundings/{z}/{x}/{y}    binary point batches                   │
 │    /api/depth?lat&lon        point query                            │
 │    /api/manifest             available regions, extents, stats      │
+│    /api/ocean/manifest       ocean snapshot inventory (404 until    │
+│    /api/ocean/currents       `make ocean`; snapshot, air-gap safe)  │
+│    /api/ocean/buoys                                                 │
 │    embedded static assets (single binary, no CDN)                   │
 └──────────────────┬──────────────────────────────────────────────────┘
                    ▼
@@ -132,8 +135,10 @@ is the unit you copy onto a disconnected machine. See
 
 **Air-gap as a constraint, not a stretch.** The serve path has no outbound
 calls. Seed tiles travel with the binary (local) or inside a Zarf tarball
-(cluster). GDAL, SNS, and S3 exist only on the ingest side, which is a
-different image and is not required to view already-built tiles.
+(cluster). The ocean overlay is the same: `GET /api/ocean/manifest`,
+`/api/ocean/currents`, and `/api/ocean/buoys` serve the last snapshot from
+`data/ocean/` (404 until `make ocean`). GDAL, SNS, S3, HYCOM, and NDBC
+exist only on ingest, which is not required to view already-built tiles.
 
 The renderer is three.js / WebGL2 on a planar Web Mercator quad, not a
 WGS84 ellipsoid. Cesium is the documented stretch, not the current target.

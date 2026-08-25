@@ -5,6 +5,9 @@ export type LabelCandidate = {
   rank: number;
 };
 
+/** Place labels and buoy marks share this occupancy radius. */
+export const MIN_LABEL_PX = 56;
+
 /** Keep higher-rank (lower number) labels; drop later ones that sit too close. */
 export function visibleLabelIds(
   candidates: readonly LabelCandidate[],

@@ -18,6 +18,10 @@ import {
   DEFAULT_EXAGGERATION,
 } from './viewerConfig';
 import { addCoastOverlay } from './overlay/coast';
+import { mountCurrents, type CurrentsHandle } from './overlay/currents';
+import { velocityGridFromJson } from './overlay/currentsField';
+import { mountBuoys, parseBuoysJson, type BuoysHandle } from './overlay/buoys';
+import { availabilityFromHttp, defaultOn, oceanCaption } from './overlay/oceanUi';
 import {
   mountAbout,
   mountControls,
@@ -27,7 +31,7 @@ import {
   sunDirection,
   type ViewerControls,
 } from './ui/controls';
-import { mountLabels } from './ui/labels';
+import { mountLabels, screenProject } from './ui/labels';
 import { mountLegend } from './ui/legend';
 import { mountLocator } from './ui/locator';
 import { mountGlobe, type GlobeHandle } from './globe/mountGlobe';
@@ -82,6 +86,64 @@ function regionFromManifest(m: Manifest): ManifestRegion {
 
 function prefersReducedMotion(): boolean {
   return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
+async function fetchOk(url: string): Promise<Response> {
+  try {
+    return await fetch(url);
+  } catch {
+    return new Response(null, { status: 0 });
+  }
+}
+
+function detectFloatOk(renderer: THREE.WebGLRenderer): boolean {
+  try {
+    return (
+      renderer.extensions.has('EXT_color_buffer_float') ||
+      renderer.extensions.has('WEBGL_color_buffer_float')
+    );
+  } catch {
+    return true;
+  }
+}
+
+function setOceanRadios(
+  form: HTMLFormElement,
+  name: 'currents' | 'buoys',
+  avail: boolean,
+  on: boolean,
+): void {
+  for (const input of form.querySelectorAll<HTMLInputElement>(`input[name="${name}"]`)) {
+    input.disabled = !avail;
+  }
+  const choice = form.querySelector<HTMLInputElement>(`input[name="${name}"][value="${on ? '1' : '0'}"]`);
+  if (choice) {
+    choice.checked = true;
+  }
+}
+
+function oceanValidTime(raw: unknown): string | null {
+  if (raw && typeof raw === 'object' && 'validTime' in raw) {
+    const t = (raw as { validTime: unknown }).validTime;
+    return typeof t === 'string' && t !== '' ? t : null;
+  }
+  return null;
+}
+
+function hycomDatasetId(currentsRaw: unknown, manifestRaw: unknown): string | null {
+  if (currentsRaw && typeof currentsRaw === 'object' && 'source' in currentsRaw) {
+    const dataset = (currentsRaw as { source?: { dataset?: unknown } }).source?.dataset;
+    if (typeof dataset === 'string' && dataset !== '') {
+      return dataset;
+    }
+  }
+  if (manifestRaw && typeof manifestRaw === 'object' && 'attribution' in manifestRaw) {
+    const attr = (manifestRaw as { attribution?: unknown }).attribution;
+    if (Array.isArray(attr) && typeof attr[0] === 'string' && attr[0] !== '') {
+      return attr[0];
+    }
+  }
+  return null;
 }
 
 async function fetchManifest(): Promise<Manifest | null> {
@@ -189,6 +251,7 @@ async function start(): Promise<void> {
   const legendRoot = requireEl<HTMLElement>('legend');
   const locatorRoot = requireEl<HTMLElement>('locator');
   const labelsRoot = requireEl<HTMLElement>('geo-labels');
+  const buoyMarks = requireEl<HTMLElement>('buoy-marks');
   const captionEl = requireEl<HTMLElement>('caption');
   const creditsEl = requireEl<HTMLElement>('credits');
   const modeField = requireEl<HTMLFieldSetElement>('view-mode');
@@ -279,6 +342,70 @@ async function start(): Promise<void> {
   mountLocator(locatorRoot);
   const labels = mountLabels(labelsRoot);
 
+  const floatOk = detectFloatOk(renderer);
+  const [currentsRes, buoysRes, oceanManRes] = await Promise.all([
+    fetchOk('/api/ocean/currents'),
+    fetchOk('/api/ocean/buoys'),
+    fetchOk('/api/ocean/manifest'),
+  ]);
+  const httpAvail = availabilityFromHttp(currentsRes.status, buoysRes.status);
+  let currentsRaw: unknown = null;
+  let buoysRaw: unknown = null;
+  let oceanManRaw: unknown = null;
+  if (httpAvail.currents) {
+    try {
+      currentsRaw = await currentsRes.json();
+    } catch {
+      currentsRaw = null;
+    }
+  }
+  if (httpAvail.buoys) {
+    try {
+      buoysRaw = await buoysRes.json();
+    } catch {
+      buoysRaw = null;
+    }
+  }
+  if (oceanManRes.status === 200) {
+    try {
+      oceanManRaw = await oceanManRes.json();
+    } catch {
+      oceanManRaw = null;
+    }
+  }
+  const grid = velocityGridFromJson(currentsRaw);
+  const buoysParsed = parseBuoysJson(buoysRaw);
+  const avail = { currents: grid != null, buoys: buoysParsed != null };
+  const layersOn = defaultOn(avail);
+  setOceanRadios(form, 'currents', avail.currents, layersOn.currents);
+  setOceanRadios(form, 'buoys', avail.buoys, layersOn.buoys);
+
+  let currentsHandle: CurrentsHandle | null = null;
+  if (grid) {
+    currentsHandle = mountCurrents(scene, grid, { reducedMotion: reduced, floatOk });
+    currentsHandle.setEnabled(layersOn.currents);
+  }
+  let buoysHandle: BuoysHandle | null = null;
+  if (buoysParsed) {
+    buoysHandle = mountBuoys(buoyMarks, buoysParsed.stations);
+    buoysHandle.setEnabled(layersOn.buoys);
+    buoyMarks.hidden = !layersOn.buoys;
+  } else {
+    buoyMarks.hidden = true;
+  }
+
+  const currentsValid = grid ? oceanValidTime(currentsRaw) : null;
+  const buoysValid = buoysParsed?.validTime ?? null;
+  const datasetId = hycomDatasetId(currentsRaw, oceanManRaw);
+  if (datasetId) {
+    const dsEl = document.getElementById('hycom-dataset');
+    if (dsEl) {
+      dsEl.textContent = datasetId;
+    }
+  }
+
+  let oceanOn = { currents: layersOn.currents, buoys: layersOn.buoys };
+
   const setMode = (next: ViewMode): void => {
     viewMode = next;
     bathymetryRunning = next === 'bathymetry';
@@ -293,19 +420,35 @@ async function start(): Promise<void> {
     if (next === 'globe') {
       globe?.setActive(true);
       globe?.resize();
+      currentsHandle?.setEnabled(false);
+      buoyMarks.hidden = true;
+      buoysHandle?.setEnabled(false);
     } else {
       globe?.setActive(false);
       setReadout(readoutEl, null);
+      currentsHandle?.setEnabled(oceanOn.currents);
+      if (buoysHandle) {
+        buoyMarks.hidden = !oceanOn.buoys;
+        buoysHandle.setEnabled(oceanOn.buoys);
+      } else {
+        buoyMarks.hidden = true;
+      }
     }
     creditsEl.hidden = next !== 'globe' || Number(form.querySelector<HTMLInputElement>('input[name="imagery"]:checked')?.value) <= 0;
   };
   setMode(viewMode);
 
   const setCaption = (exag: number): void => {
-    captionEl.textContent =
-      viewMode === 'globe'
-        ? `Globe · Mississippi Sound · Cesium · ${exag}× vertical`
-        : `Looking north · Mississippi Sound · synthetic depths · ${exag}× vertical`;
+    if (viewMode === 'globe') {
+      captionEl.textContent = `Globe · Mississippi Sound · Cesium · ${exag}× vertical`;
+      return;
+    }
+    const base = `Looking north · Mississippi Sound · synthetic depths · ${exag}× vertical`;
+    const ocean = oceanCaption(
+      oceanOn.currents ? currentsValid : null,
+      oceanOn.buoys ? buoysValid : null,
+    );
+    captionEl.textContent = ocean ? `${base} · ${ocean}` : base;
   };
   setCaption(DEFAULT_EXAGGERATION);
 
@@ -323,7 +466,7 @@ async function start(): Promise<void> {
   let exaggeration = DEFAULT_EXAGGERATION;
   mountControls(
     form,
-    { exaggeration: DEFAULT_EXAGGERATION, contourInterval: DEFAULT_CONTOUR_INTERVAL, sunAzimuth: 315, sunAltitude: 38, imageryOpacity: DEFAULT_IMAGERY_OPACITY, currents: false, buoys: false },
+    { exaggeration: DEFAULT_EXAGGERATION, contourInterval: DEFAULT_CONTOUR_INTERVAL, sunAzimuth: 315, sunAltitude: 38, imageryOpacity: DEFAULT_IMAGERY_OPACITY, currents: oceanOn.currents, buoys: oceanOn.buoys },
     (state: ViewerControls) => {
       exaggeration = state.exaggeration;
       shared.uExaggeration.value = state.exaggeration;
@@ -334,6 +477,14 @@ async function start(): Promise<void> {
       globe?.setImageryOn(state.imageryOpacity > 0);
       globe?.setSun(state.sunAzimuth, state.sunAltitude);
       creditsEl.hidden = viewMode !== 'globe' || state.imageryOpacity <= 0;
+      oceanOn = { currents: state.currents, buoys: state.buoys };
+      if (viewMode === 'bathymetry') {
+        currentsHandle?.setEnabled(state.currents);
+        if (buoysHandle) {
+          buoyMarks.hidden = !state.buoys;
+          buoysHandle.setEnabled(state.buoys);
+        }
+      }
       setCaption(state.exaggeration);
     },
   );
@@ -448,9 +599,12 @@ async function start(): Promise<void> {
   window.addEventListener('resize', onResize);
   onResize();
 
+  const clock = new THREE.Clock();
+  const overlayScratch = new THREE.Vector3();
   const tick = (): void => {
     requestAnimationFrame(tick);
     if (!bathymetryRunning) {
+      clock.getDelta();
       return;
     }
     camera.up.set(0, 0, 1);
@@ -458,9 +612,20 @@ async function start(): Promise<void> {
     clampLookAt(camera, controls, aoi);
     fitProjection(camera, controls);
     lod.update(camera, canvas.clientHeight);
-    labels.update(camera, exaggeration, canvas.clientWidth, canvas.clientHeight);
 
-    if (hovering) {
+    const w = canvas.clientWidth;
+    const h = canvas.clientHeight;
+    const project = screenProject(camera, exaggeration, w, h, overlayScratch);
+    const buoyCands =
+      oceanOn.buoys && buoysHandle ? buoysHandle.candidates(project, w, h) : [];
+    labels.update(camera, exaggeration, w, h, buoyCands);
+    if (oceanOn.buoys && buoysHandle) {
+      buoysHandle.layout(project, w, h, labels.placeCandidates());
+    }
+
+    currentsHandle?.tick(clock.getDelta());
+
+    if (hovering && readoutEl.dataset.buoy !== '1') {
       raycaster.setFromCamera(pointer, camera);
       setReadout(readoutEl, lod.pick(raycaster));
     }

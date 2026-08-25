@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { sampleUV, advect, shouldRespawn, staticArrows, type VelocityGrid } from './currentsField.ts';
+import {
+  sampleUV,
+  advect,
+  shouldRespawn,
+  staticArrows,
+  velocityGridFromJson,
+  type VelocityGrid,
+} from './currentsField.ts';
 import { AOI } from '../geo.ts';
 
 const grid: VelocityGrid = {
@@ -47,5 +54,39 @@ describe('staticArrows', () => {
   it('skips null cells', () => {
     const g: VelocityGrid = { ...grid, u: [1, null, 1, 1], v: [0, null, 0, 0] };
     assert.equal(staticArrows(g).length, 3);
+  });
+});
+
+describe('velocityGridFromJson', () => {
+  it('maps bbox/nx/ny and keeps null velocity cells as null', () => {
+    const grid = velocityGridFromJson({
+      validTime: '2026-08-24T18:00:00Z',
+      bbox: { west: -89.7, south: 29.95, east: -87.85, north: 30.52 },
+      nx: 2,
+      ny: 1,
+      grid: 'centers',
+      u: [0.12, null],
+      v: [-0.04, null],
+    });
+    assert.ok(grid);
+    assert.equal(grid.nx, 2);
+    assert.equal(grid.ny, 1);
+    assert.deepEqual(grid.bbox, { west: -89.7, south: 29.95, east: -87.85, north: 30.52 });
+    assert.deepEqual(grid.u, [0.12, null]);
+    assert.deepEqual(grid.v, [-0.04, null]);
+  });
+
+  it('rejects a grid that is not cell centres', () => {
+    assert.equal(
+      velocityGridFromJson({
+        bbox: { west: -90, south: 30, east: -88, north: 32 },
+        nx: 1,
+        ny: 1,
+        grid: 'corners',
+        u: [0],
+        v: [0],
+      }),
+      null,
+    );
   });
 });
