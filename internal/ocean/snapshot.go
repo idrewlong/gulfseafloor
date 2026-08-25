@@ -9,6 +9,8 @@ import (
 	"time"
 )
 
+var rename = os.Rename
+
 // EncodeManifest builds the snapshot inventory for currents and buoys.
 func EncodeManifest(c Currents, b Buoys, retrieved time.Time) Manifest {
 	cv := c.ValidTime.UTC()
@@ -31,8 +33,8 @@ func EncodeManifest(c Currents, b Buoys, retrieved time.Time) Manifest {
 	}
 }
 
-// WriteSnapshot validates currents and buoys JSON, then replaces the files in
-// dir. A validation error leaves dir unchanged.
+// WriteSnapshot validates currents and buoys JSON, then atomically replaces
+// dir. A validation or swap error leaves the previous snapshot unchanged.
 func WriteSnapshot(dir string, c Currents, b Buoys, retrieved time.Time) error {
 	cJSON, err := json.MarshalIndent(c, "", "  ")
 	if err != nil {
@@ -63,7 +65,7 @@ func WriteSnapshot(dir string, c Currents, b Buoys, retrieved time.Time) error {
 	if err := os.MkdirAll(parent, 0o755); err != nil {
 		return fmt.Errorf("ocean: snapshot: %w", err)
 	}
-	tmp, err := os.MkdirTemp(parent, "ocean-*")
+	tmp, err := os.MkdirTemp(parent, "ocean-new-*")
 	if err != nil {
 		return fmt.Errorf("ocean: snapshot: %w", err)
 	}
@@ -82,13 +84,8 @@ func WriteSnapshot(dir string, c Currents, b Buoys, retrieved time.Time) error {
 			return fmt.Errorf("ocean: snapshot: %w", err)
 		}
 	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := replaceDir(tmp, dir); err != nil {
 		return fmt.Errorf("ocean: snapshot: %w", err)
-	}
-	for _, f := range files {
-		if err := os.Rename(filepath.Join(tmp, f.name), filepath.Join(dir, f.name)); err != nil {
-			return fmt.Errorf("ocean: snapshot: %w", err)
-		}
 	}
 	return nil
 }
@@ -101,6 +98,28 @@ func DecodeCurrentsFile(path string) (Currents, error) {
 	}
 	defer f.Close()
 	return DecodeCurrents(f)
+}
+
+func replaceDir(tmp, dir string) error {
+	_, err := os.Stat(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return rename(tmp, dir)
+		}
+		return err
+	}
+	backup := filepath.Join(filepath.Dir(dir), "."+filepath.Base(dir)+"-old-"+filepath.Base(tmp))
+	if err := rename(dir, backup); err != nil {
+		return err
+	}
+	if err := rename(tmp, dir); err != nil {
+		if rb := rename(backup, dir); rb != nil {
+			return fmt.Errorf("%w (rollback: %v)", err, rb)
+		}
+		return err
+	}
+	os.RemoveAll(backup)
+	return nil
 }
 
 func writeFileSync(path string, data []byte) error {

@@ -130,9 +130,12 @@ func getCapped(ctx context.Context, client *http.Client, rawURL string, limit in
 		return nil, 0, err
 	}
 	defer res.Body.Close()
-	data, err := io.ReadAll(io.LimitReader(res.Body, limit))
+	data, err := io.ReadAll(io.LimitReader(res.Body, limit+1))
 	if err != nil {
 		return nil, res.StatusCode, err
+	}
+	if int64(len(data)) > limit {
+		return nil, res.StatusCode, fmt.Errorf("response exceeds %d bytes", limit)
 	}
 	return data, res.StatusCode, nil
 }
