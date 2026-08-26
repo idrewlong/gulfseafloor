@@ -69,7 +69,8 @@ func (s *Server) aircraftSnapshot(ctx context.Context) (aircraft.Snapshot, bool)
 		if snapshot, ok := s.ac.cached(now, s.cfg.AircraftCacheTTL); ok {
 			return snapshot, nil
 		}
-		snapshot, err := aircraft.Fetch(ctx, s.ac.client, s.ac.endpoints, tiles.AOI, now)
+		fetchCtx := context.WithoutCancel(ctx)
+		snapshot, err := aircraft.Fetch(fetchCtx, s.ac.client, s.ac.endpoints, tiles.AOI, now)
 		if err != nil {
 			return aircraft.Snapshot{}, err
 		}

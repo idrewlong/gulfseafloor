@@ -1,10 +1,12 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -137,7 +139,7 @@ func TestAircraftSingleflightCoalesces(t *testing.T) {
 	started := make(chan struct{}, 2)
 	release := make(chan struct{})
 	var n atomic.Int32
-	h := aircraftHandler(t, func(w http.ResponseWriter, r *http.Request) {
+	base := aircraftHandler(t, func(w http.ResponseWriter, r *http.Request) {
 		n.Add(1)
 		started <- struct{}{}
 		<-release
@@ -146,6 +148,12 @@ func TestAircraftSingleflightCoalesces(t *testing.T) {
 	}, func(w http.ResponseWriter, r *http.Request) {
 		t.Error("fallback should not run")
 	}, time.Now)
+	var entered sync.WaitGroup
+	entered.Add(2)
+	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		entered.Done()
+		base.ServeHTTP(w, r)
+	})
 	done := make(chan int, 2)
 	for i := 0; i < 2; i++ {
 		go func() {
@@ -154,12 +162,30 @@ func TestAircraftSingleflightCoalesces(t *testing.T) {
 			done <- rec.Code
 		}()
 	}
+	allEntered := make(chan struct{})
+	go func() {
+		entered.Wait()
+		close(allEntered)
+	}()
+	select {
+	case <-allEntered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("requests did not enter ServeHTTP")
+	}
 	select {
 	case <-started:
 	case <-time.After(2 * time.Second):
 		t.Fatal("upstream did not start")
 	}
 	time.Sleep(20 * time.Millisecond)
+	if n.Load() != 1 {
+		t.Fatalf("upstream hits while blocked %d", n.Load())
+	}
+	select {
+	case <-started:
+		t.Fatal("second upstream fetch started before release")
+	default:
+	}
 	close(release)
 	for i := 0; i < 2; i++ {
 		if code := <-done; code != http.StatusOK {
@@ -168,5 +194,71 @@ func TestAircraftSingleflightCoalesces(t *testing.T) {
 	}
 	if n.Load() != 1 {
 		t.Fatalf("upstream hits %d", n.Load())
+	}
+}
+
+func TestAircraftSingleflightFetchSurvivesFirstCallerCancellation(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	upstreamCanceled := make(chan struct{})
+	base := aircraftHandler(t, func(w http.ResponseWriter, r *http.Request) {
+		close(started)
+		select {
+		case <-r.Context().Done():
+			close(upstreamCanceled)
+			return
+		case <-release:
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"time":1,"states":[["abc123","X",null,1,1,-89.08,30.41,1,false,1,1,0,null,1,null,false,0]]}`)
+	}, func(w http.ResponseWriter, r *http.Request) {
+		t.Error("fallback should not run")
+	}, time.Now)
+
+	var entered sync.WaitGroup
+	entered.Add(2)
+	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		entered.Done()
+		base.ServeHTTP(w, r)
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan int, 2)
+	go func() {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/aircraft", nil).WithContext(ctx))
+		done <- rec.Code
+	}()
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("upstream did not start")
+	}
+	go func() {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/aircraft", nil))
+		done <- rec.Code
+	}()
+	allEntered := make(chan struct{})
+	go func() {
+		entered.Wait()
+		close(allEntered)
+	}()
+	select {
+	case <-allEntered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("requests did not enter ServeHTTP")
+	}
+	time.Sleep(20 * time.Millisecond)
+	cancel()
+	select {
+	case <-upstreamCanceled:
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(release)
+
+	for i := 0; i < 2; i++ {
+		if code := <-done; code != http.StatusOK {
+			t.Fatalf("status %d", code)
+		}
 	}
 }
