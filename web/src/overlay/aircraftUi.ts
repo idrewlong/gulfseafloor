@@ -28,6 +28,15 @@ export function aircraftChromeHidden(mode: 'globe' | 'bathymetry'): boolean {
   return mode === 'globe';
 }
 
+export function shouldPollAircraft(opts: {
+  mode: 'globe' | 'bathymetry';
+  layerOn: boolean;
+  documentHidden: boolean;
+  available: boolean;
+}): boolean {
+  return opts.mode === 'bathymetry' && opts.layerOn && !opts.documentHidden && opts.available;
+}
+
 export function aircraftCaption(source: string | null, fetchedAt: string | null): string {
   if (source == null || fetchedAt == null) {
     return '';

@@ -1,4 +1,5 @@
 import { bboxContains, type BBox } from '../geo.ts';
+import { setAircraftReadout } from '../ui/controls.ts';
 import {
   MIN_LABEL_PX,
   visibleLabelIds,
@@ -6,6 +7,7 @@ import {
 } from '../ui/labelLayout.ts';
 import {
   AIRCRAFT_RANK,
+  aircraftReadout,
   type Aircraft,
   type AircraftSnapshot,
 } from './aircraftUi.ts';
@@ -17,6 +19,18 @@ export type AircraftProjectFn = (
   lat: number,
   elev: number,
 ) => { x: number; y: number } | null;
+
+export type AircraftHandle = {
+  layout(
+    project: AircraftProjectFn,
+    width: number,
+    height: number,
+    extraCandidates: LabelCandidate[],
+  ): void;
+  setEnabled(on: boolean): void;
+  setAircraft(rows: Aircraft[]): void;
+  candidates(project: AircraftProjectFn, width: number, height: number): LabelCandidate[];
+};
 
 function optionalFinite(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
@@ -108,7 +122,7 @@ export function layoutAircraftVisibility(
       positions.push(null);
       continue;
     }
-    const position = project(aircraft.lon, aircraft.lat, aircraft.altBaroM ?? 0);
+    const position = project(aircraft.lon, aircraft.lat, 0);
     const onScreen =
       position !== null &&
       position.x > 8 &&
@@ -132,5 +146,172 @@ export function layoutAircraftVisibility(
     visible: visibleLabelIds(candidates, MIN_LABEL_PX),
     candidates,
     positions,
+  };
+}
+
+type EngagedAircraftMark = {
+  aircraft: Aircraft;
+  matches: (selector: string) => boolean;
+};
+
+function usesSquare(aircraft: Aircraft): boolean {
+  return aircraft.trackDeg == null;
+}
+
+function syncAircraftReadout(marks: readonly EngagedAircraftMark[]): void {
+  const el = document.getElementById('readout');
+  if (!el) {
+    return;
+  }
+  let focused: Aircraft | null = null;
+  let hovered: Aircraft | null = null;
+  for (const mark of marks) {
+    if (mark.matches(':hover')) {
+      hovered = mark.aircraft;
+      break;
+    }
+    if (focused == null && mark.matches(':focus')) {
+      focused = mark.aircraft;
+    }
+  }
+  const engaged = hovered ?? focused;
+  setAircraftReadout(el, engaged ? aircraftReadout(engaged) : null);
+}
+
+function applyMarkContent(btn: HTMLButtonElement, aircraft: Aircraft): void {
+  btn.dataset.icao24 = aircraft.icao24;
+  btn.classList.toggle('is-square', usesSquare(aircraft));
+  btn.setAttribute('aria-label', aircraftReadout(aircraft));
+  const glyph = btn.querySelector<HTMLElement>('.aircraft-glyph');
+  if (glyph) {
+    glyph.style.transform =
+      aircraft.trackDeg != null ? `rotate(${aircraft.trackDeg}deg)` : '';
+  }
+  const label = btn.querySelector('.aircraft-id');
+  if (label) {
+    label.textContent = aircraft.callsign || aircraft.icao24;
+  }
+}
+
+function makeMark(aircraft: Aircraft): HTMLButtonElement {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'aircraft-mark';
+  const glyph = document.createElement('span');
+  glyph.className = 'aircraft-glyph';
+  glyph.setAttribute('aria-hidden', 'true');
+  const id = document.createElement('span');
+  id.className = 'aircraft-id';
+  btn.append(glyph, id);
+  applyMarkContent(btn, aircraft);
+  btn.hidden = true;
+  return btn;
+}
+
+export function mountAircraft(root: HTMLElement, aoi?: BBox): AircraftHandle {
+  let rows: Aircraft[] = [];
+  let buttons: HTMLButtonElement[] = [];
+  let enabled = true;
+
+  const marks = (): EngagedAircraftMark[] =>
+    buttons.flatMap((btn, i) => {
+      const aircraft = rows[i];
+      return aircraft ? [{ aircraft, matches: (selector: string) => btn.matches(selector) }] : [];
+    });
+
+  const sync = (): void => {
+    syncAircraftReadout(marks());
+  };
+
+  const bind = (btn: HTMLButtonElement): void => {
+    btn.addEventListener('pointerenter', sync);
+    btn.addEventListener('focus', sync);
+    btn.addEventListener('pointerleave', sync);
+    btn.addEventListener('blur', sync);
+  };
+
+  const rebuild = (next: Aircraft[]): void => {
+    root.replaceChildren();
+    rows = next;
+    buttons = next.map((aircraft) => {
+      const btn = makeMark(aircraft);
+      bind(btn);
+      root.append(btn);
+      return btn;
+    });
+  };
+
+  const sameIdentity = (next: Aircraft[]): boolean =>
+    next.length === rows.length && next.every((aircraft, i) => aircraft.icao24 === rows[i]?.icao24);
+
+  rebuild([]);
+
+  return {
+    layout(project, width, height, extraCandidates) {
+      const { visible, positions } = layoutAircraftVisibility(
+        extraCandidates,
+        rows,
+        project,
+        width,
+        height,
+        aoi,
+      );
+      for (let i = 0; i < buttons.length; i++) {
+        const btn = buttons[i];
+        const pos = positions[i];
+        if (!btn) {
+          continue;
+        }
+        const on = enabled && pos !== null && visible.has(AIRCRAFT_ID_BASE + i);
+        btn.hidden = !on;
+        if (on && pos) {
+          btn.style.left = `${pos.x}px`;
+          btn.style.top = `${pos.y}px`;
+        }
+      }
+    },
+    candidates(project, width, height) {
+      return layoutAircraftVisibility([], rows, project, width, height, aoi).candidates;
+    },
+    setEnabled(on) {
+      enabled = on;
+      root.hidden = !on;
+      if (!on) {
+        for (const btn of buttons) {
+          btn.hidden = true;
+        }
+        const el = document.getElementById('readout');
+        if (el) {
+          setAircraftReadout(el, null);
+        }
+      }
+    },
+    setAircraft(next) {
+      if (sameIdentity(next)) {
+        const metaChanged = next.some((aircraft, i) => {
+          const prev = rows[i];
+          return (
+            prev == null ||
+            prev.callsign !== aircraft.callsign ||
+            prev.trackDeg !== aircraft.trackDeg ||
+            prev.altBaroM !== aircraft.altBaroM ||
+            prev.gsMps !== aircraft.gsMps ||
+            prev.onGround !== aircraft.onGround
+          );
+        });
+        rows = next;
+        if (metaChanged) {
+          for (let i = 0; i < buttons.length; i++) {
+            const btn = buttons[i];
+            const aircraft = next[i];
+            if (btn && aircraft) {
+              applyMarkContent(btn, aircraft);
+            }
+          }
+        }
+        return;
+      }
+      rebuild(next);
+    },
   };
 }

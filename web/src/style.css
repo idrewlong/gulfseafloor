@@ -121,10 +121,13 @@ body {
 }
 
 #app.is-globe #ocean,
-#app.is-globe .ocean-about {
+#app.is-globe .ocean-about,
+#app.is-globe #aircraft,
+#app.is-globe .aircraft-about {
   display: none;
 }
-#app.is-globe #buoy-marks {
+#app.is-globe #buoy-marks,
+#app.is-globe #aircraft-marks {
   visibility: hidden;
   pointer-events: none;
 }
@@ -134,7 +137,7 @@ body {
 }
 
 #app.is-bathymetry .controls {
-  grid-template-columns: minmax(180px, 1.3fr) minmax(150px, 0.9fr) minmax(150px, 0.9fr) minmax(120px, 0.8fr) minmax(120px, 0.8fr);
+  grid-template-columns: minmax(180px, 1.3fr) minmax(150px, 0.9fr) minmax(150px, 0.9fr) minmax(120px, 0.8fr) minmax(120px, 0.8fr) minmax(120px, 0.8fr);
 }
 
 .view-mode {
@@ -357,7 +360,8 @@ body {
   line-height: 1.05;
 }
 
-.readout-buoy {
+.readout-buoy,
+.readout-aircraft {
   white-space: pre-line;
   font-size: 13px;
   font-weight: 500;
@@ -656,7 +660,8 @@ body {
   overflow: hidden;
 }
 
-#buoy-marks {
+#buoy-marks,
+#aircraft-marks {
   position: absolute;
   inset: 0;
   pointer-events: none;
@@ -664,7 +669,8 @@ body {
   overflow: hidden;
 }
 
-#buoy-marks button {
+#buoy-marks button,
+#aircraft-marks button {
   pointer-events: auto;
 }
 
@@ -697,6 +703,53 @@ body {
 }
 
 .buoy-id {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.aircraft-mark {
+  position: absolute;
+  left: 0;
+  top: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--land);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  transform: translate(-50%, -50%);
+  text-shadow: 0 1px 0 #071018, 0 0 8px #071018;
+}
+
+.aircraft-mark:focus-visible {
+  outline: 1px solid var(--land);
+  outline-offset: 2px;
+}
+
+.aircraft-glyph {
+  display: block;
+  width: 0;
+  height: 0;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-bottom: 10px solid var(--land);
+  transform-origin: 50% 70%;
+}
+
+.aircraft-mark.is-square .aircraft-glyph {
+  width: 8px;
+  height: 8px;
+  border: 0;
+  background: var(--land);
+  transform: none;
+}
+
+.aircraft-id {
   font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.08em;

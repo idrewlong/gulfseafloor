@@ -23,6 +23,15 @@ import { addCoastOverlay } from './overlay/coast';
 import { detectFloatOk, mountCurrents, type CurrentsHandle } from './overlay/currents';
 import { velocityGridFromJson } from './overlay/currentsField';
 import { mountBuoys, parseBuoysJson, stationsOnChart, type BuoysHandle } from './overlay/buoys';
+import { mountAircraft, parseAircraftJson, type AircraftHandle } from './overlay/aircraft';
+import {
+  aircraftAvailable,
+  aircraftCaption,
+  aircraftChromeHidden,
+  deadReckon,
+  shouldPollAircraft,
+  type Aircraft,
+} from './overlay/aircraftUi';
 import { availabilityFromHttp, defaultOn, oceanCaption, oceanChromeHidden, unavailableOceanResponse } from './overlay/oceanUi';
 import {
   mountAbout,
@@ -96,7 +105,7 @@ async function fetchOk(url: string): Promise<Response> {
 
 function setOceanRadios(
   form: HTMLFormElement,
-  name: 'currents' | 'buoys',
+  name: 'currents' | 'buoys' | 'aircraft',
   avail: boolean,
   on: boolean,
 ): void {
@@ -233,7 +242,9 @@ async function start(): Promise<void> {
   const locatorRoot = requireEl<HTMLElement>('locator');
   const labelsRoot = requireEl<HTMLElement>('geo-labels');
   const buoyMarks = requireEl<HTMLElement>('buoy-marks');
+  const aircraftMarks = requireEl<HTMLElement>('aircraft-marks');
   const oceanFieldset = requireEl<HTMLFieldSetElement>('ocean');
+  const aircraftFieldset = requireEl<HTMLFieldSetElement>('aircraft');
   const captionEl = requireEl<HTMLElement>('caption');
   const creditsEl = requireEl<HTMLElement>('credits');
   const modeField = requireEl<HTMLFieldSetElement>('view-mode');
@@ -332,12 +343,103 @@ async function start(): Promise<void> {
 
   let currentsHandle: CurrentsHandle | null = null;
   let buoysHandle: BuoysHandle | null = null;
+  let aircraftHandle: AircraftHandle | null = null;
   let currentsValid: string | null = null;
   let buoysValid: string | null = null;
   let oceanOn = { currents: false, buoys: false };
+  let aircraftOn = false;
+  let aircraftAvailableStatus = false;
+  let aircraftSource: string | null = null;
+  let aircraftFetchedAt: string | null = null;
+  let aircraftReport: { t: number; rows: Aircraft[] } | null = null;
+  let aircraftTimer: number | undefined;
+  let aircraftPrimed = false;
   setOceanRadios(form, 'currents', false, false);
   setOceanRadios(form, 'buoys', false, false);
+  setOceanRadios(form, 'aircraft', false, false);
   buoyMarks.hidden = true;
+  aircraftMarks.hidden = true;
+  aircraftHandle = mountAircraft(aircraftMarks, aoi);
+  aircraftHandle.setEnabled(false);
+
+  const applyAircraftUnavailable = (): void => {
+    aircraftAvailableStatus = false;
+    aircraftOn = false;
+    aircraftPrimed = true;
+    aircraftSource = null;
+    aircraftFetchedAt = null;
+    aircraftReport = null;
+    setOceanRadios(form, 'aircraft', false, false);
+    aircraftHandle?.setAircraft([]);
+    aircraftHandle?.setEnabled(false);
+    aircraftMarks.hidden = true;
+    if (aircraftTimer !== undefined) {
+      window.clearInterval(aircraftTimer);
+      aircraftTimer = undefined;
+    }
+  };
+
+  const pullAircraft = async (): Promise<void> => {
+    try {
+      const res = await fetchOk('/api/aircraft');
+      if (!aircraftAvailable(res.status)) {
+        applyAircraftUnavailable();
+        setCaption(exaggeration);
+        return;
+      }
+      let raw: unknown = null;
+      try {
+        raw = await res.json();
+      } catch {
+        raw = null;
+      }
+      const parsed = parseAircraftJson(raw);
+      if (!parsed) {
+        applyAircraftUnavailable();
+        setCaption(exaggeration);
+        return;
+      }
+      aircraftAvailableStatus = true;
+      if (!aircraftPrimed) {
+        aircraftOn = true;
+        aircraftPrimed = true;
+      }
+      setOceanRadios(form, 'aircraft', true, aircraftOn);
+      aircraftSource = parsed.source;
+      aircraftFetchedAt = parsed.fetchedAt;
+      aircraftReport = { t: performance.now(), rows: parsed.aircraft };
+      aircraftHandle?.setAircraft(parsed.aircraft);
+      const show = viewMode === 'bathymetry' && aircraftOn;
+      aircraftHandle?.setEnabled(show);
+      aircraftMarks.hidden = !show;
+      setCaption(exaggeration);
+    } catch {
+      applyAircraftUnavailable();
+      setCaption(exaggeration);
+    }
+  };
+
+  const restartAircraftPoll = (): void => {
+    if (aircraftTimer !== undefined) {
+      window.clearInterval(aircraftTimer);
+    }
+    aircraftTimer = undefined;
+    if (
+      !shouldPollAircraft({
+        mode: viewMode,
+        layerOn: aircraftOn,
+        documentHidden: document.hidden,
+        available: aircraftAvailableStatus,
+      })
+    ) {
+      return;
+    }
+    void pullAircraft();
+    aircraftTimer = window.setInterval(() => {
+      void pullAircraft();
+    }, 10_000);
+  };
+  document.addEventListener('visibilitychange', restartAircraftPoll);
 
   const setMode = (next: ViewMode): void => {
     viewMode = next;
@@ -345,6 +447,7 @@ async function start(): Promise<void> {
     app.classList.toggle('is-globe', next === 'globe');
     app.classList.toggle('is-bathymetry', next === 'bathymetry');
     oceanFieldset.hidden = oceanChromeHidden(next);
+    aircraftFieldset.hidden = aircraftChromeHidden(next);
     const globeRadio = modeField.querySelector<HTMLInputElement>('input[name="view-mode"][value="globe"]');
     const bathyRadio = modeField.querySelector<HTMLInputElement>('input[name="view-mode"][value="bathymetry"]');
     if (globeRadio && bathyRadio) {
@@ -357,6 +460,8 @@ async function start(): Promise<void> {
       currentsHandle?.setEnabled(false);
       buoyMarks.hidden = true;
       buoysHandle?.setEnabled(false);
+      aircraftMarks.hidden = true;
+      aircraftHandle?.setEnabled(false);
     } else {
       globe?.setActive(false);
       setReadout(readoutEl, null);
@@ -367,8 +472,15 @@ async function start(): Promise<void> {
       } else {
         buoyMarks.hidden = true;
       }
+      if (aircraftHandle) {
+        aircraftMarks.hidden = !aircraftOn;
+        aircraftHandle.setEnabled(aircraftOn);
+      } else {
+        aircraftMarks.hidden = true;
+      }
     }
     creditsEl.hidden = next !== 'globe' || Number(form.querySelector<HTMLInputElement>('input[name="imagery"]:checked')?.value) <= 0;
+    restartAircraftPoll();
   };
   setMode(viewMode);
 
@@ -382,7 +494,15 @@ async function start(): Promise<void> {
       oceanOn.currents ? currentsValid : null,
       oceanOn.buoys ? buoysValid : null,
     );
-    captionEl.textContent = ocean ? `${base} · ${ocean}` : base;
+    const air = aircraftOn ? aircraftCaption(aircraftSource, aircraftFetchedAt) : '';
+    const parts = [base];
+    if (ocean) {
+      parts.push(ocean);
+    }
+    if (air) {
+      parts.push(air);
+    }
+    captionEl.textContent = parts.join(' · ');
   };
   setCaption(DEFAULT_EXAGGERATION);
 
@@ -395,7 +515,16 @@ async function start(): Promise<void> {
   let exaggeration = DEFAULT_EXAGGERATION;
   mountControls(
     form,
-    { exaggeration: DEFAULT_EXAGGERATION, contourInterval: DEFAULT_CONTOUR_INTERVAL, sunAzimuth: 315, sunAltitude: 38, imageryOpacity: DEFAULT_IMAGERY_OPACITY, currents: oceanOn.currents, buoys: oceanOn.buoys },
+    {
+      exaggeration: DEFAULT_EXAGGERATION,
+      contourInterval: DEFAULT_CONTOUR_INTERVAL,
+      sunAzimuth: 315,
+      sunAltitude: 38,
+      imageryOpacity: DEFAULT_IMAGERY_OPACITY,
+      currents: oceanOn.currents,
+      buoys: oceanOn.buoys,
+      aircraft: false,
+    },
     (state: ViewerControls) => {
       exaggeration = state.exaggeration;
       shared.uExaggeration.value = state.exaggeration;
@@ -407,12 +536,21 @@ async function start(): Promise<void> {
       globe?.setSun(state.sunAzimuth, state.sunAltitude);
       creditsEl.hidden = viewMode !== 'globe' || state.imageryOpacity <= 0;
       oceanOn = { currents: state.currents, buoys: state.buoys };
+      const aircraftWasOn = aircraftOn;
+      aircraftOn = state.aircraft;
       if (viewMode === 'bathymetry') {
         currentsHandle?.setEnabled(state.currents);
         if (buoysHandle) {
           buoyMarks.hidden = !state.buoys;
           buoysHandle.setEnabled(state.buoys);
         }
+        if (aircraftHandle) {
+          aircraftMarks.hidden = !state.aircraft;
+          aircraftHandle.setEnabled(state.aircraft);
+        }
+      }
+      if (aircraftWasOn !== aircraftOn) {
+        restartAircraftPoll();
       }
       setCaption(state.exaggeration);
     },
@@ -551,6 +689,25 @@ async function start(): Promise<void> {
     setCaption(exaggeration);
   })();
 
+  void pullAircraft().then(() => {
+    if (aircraftTimer !== undefined) {
+      window.clearInterval(aircraftTimer);
+      aircraftTimer = undefined;
+    }
+    if (
+      shouldPollAircraft({
+        mode: viewMode,
+        layerOn: aircraftOn,
+        documentHidden: document.hidden,
+        available: aircraftAvailableStatus,
+      })
+    ) {
+      aircraftTimer = window.setInterval(() => {
+        void pullAircraft();
+      }, 10_000);
+    }
+  });
+
   await ensureBathymetry();
 
   const pointer = new THREE.Vector2(-2, -2);
@@ -598,14 +755,30 @@ async function start(): Promise<void> {
     const w = canvas.clientWidth;
     const h = canvas.clientHeight;
     labels.update(camera, exaggeration, w, h);
+    const overlayProject = screenProject(camera, exaggeration, w, h, overlayScratch, 18);
     if (oceanOn.buoys && buoysHandle) {
-      const buoyProject = screenProject(camera, exaggeration, w, h, overlayScratch, 18);
-      buoysHandle.layout(buoyProject, w, h, labels.placeCandidates());
+      buoysHandle.layout(overlayProject, w, h, labels.placeCandidates());
+    }
+    if (aircraftOn && aircraftHandle) {
+      if (aircraftReport) {
+        const dt = reduced ? 0 : (performance.now() - aircraftReport.t) / 1000;
+        aircraftHandle.setAircraft(
+          aircraftReport.rows.map((row) => {
+            const pos = deadReckon(row, dt);
+            return { ...row, lon: pos.lon, lat: pos.lat };
+          }),
+        );
+      }
+      const extra = [...labels.placeCandidates()];
+      if (oceanOn.buoys && buoysHandle) {
+        extra.push(...buoysHandle.candidates(overlayProject, w, h));
+      }
+      aircraftHandle.layout(overlayProject, w, h, extra);
     }
 
     currentsHandle?.tick(clock.getDelta());
 
-    if (hovering && readoutEl.dataset.buoy !== '1') {
+    if (hovering && readoutEl.dataset.buoy !== '1' && readoutEl.dataset.aircraft !== '1') {
       raycaster.setFromCamera(pointer, camera);
       setReadout(readoutEl, lod.pick(raycaster));
     }

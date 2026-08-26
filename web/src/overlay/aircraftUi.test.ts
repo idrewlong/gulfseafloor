@@ -7,6 +7,7 @@ import {
   aircraftChromeHidden,
   aircraftReadout,
   deadReckon,
+  shouldPollAircraft,
 } from './aircraftUi.ts';
 
 describe('aircraftAvailable', () => {
@@ -85,5 +86,16 @@ describe('deadReckon', () => {
 describe('AIRCRAFT_RANK', () => {
   it('is 20 so places and buoys outrank aircraft', () => {
     assert.equal(AIRCRAFT_RANK, 20);
+  });
+});
+
+describe('shouldPollAircraft', () => {
+  const on = { layerOn: true, documentHidden: false, available: true };
+  it('polls only on bathymetry while visible and enabled', () => {
+    assert.equal(shouldPollAircraft({ mode: 'bathymetry', ...on }), true);
+    assert.equal(shouldPollAircraft({ mode: 'globe', ...on }), false);
+    assert.equal(shouldPollAircraft({ mode: 'bathymetry', ...on, documentHidden: true }), false);
+    assert.equal(shouldPollAircraft({ mode: 'bathymetry', ...on, layerOn: false }), false);
+    assert.equal(shouldPollAircraft({ mode: 'bathymetry', ...on, available: false }), false);
   });
 });

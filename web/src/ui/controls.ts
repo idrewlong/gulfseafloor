@@ -6,6 +6,7 @@ export type ViewerControls = {
   imageryOpacity: number;
   currents: boolean;
   buoys: boolean;
+  aircraft: boolean;
 };
 
 export type ControlsHandle = {
@@ -56,8 +57,9 @@ export function mountControls(
   const altitudeOut = form.querySelector<HTMLOutputElement>('#sun-altitude-out');
   const imagery = form.querySelector<HTMLFieldSetElement>('#imagery');
   const ocean = form.querySelector<HTMLFieldSetElement>('#ocean');
+  const aircraft = form.querySelector<HTMLFieldSetElement>('#aircraft');
 
-  if (!exaggeration || !exaggerationOut || !contour || !azimuth || !azimuthOut || !altitude || !altitudeOut || !imagery || !ocean) {
+  if (!exaggeration || !exaggerationOut || !contour || !azimuth || !azimuthOut || !altitude || !altitudeOut || !imagery || !ocean || !aircraft) {
     throw new Error('control markup is incomplete');
   }
 
@@ -92,12 +94,19 @@ export function mountControls(
   if (buoysInput) {
     buoysInput.checked = true;
   }
+  const aircraftInput = form.querySelector<HTMLInputElement>(
+    `input[name="aircraft"][value="${initial.aircraft ? '1' : '0'}"]`,
+  );
+  if (aircraftInput) {
+    aircraftInput.checked = true;
+  }
 
   const read = (): ViewerControls => {
     const checked = form.querySelector<HTMLInputElement>('input[name="contour"]:checked');
     const img = form.querySelector<HTMLInputElement>('input[name="imagery"]:checked');
     const currents = form.querySelector<HTMLInputElement>('input[name="currents"]:checked');
     const buoys = form.querySelector<HTMLInputElement>('input[name="buoys"]:checked');
+    const aircraftChoice = form.querySelector<HTMLInputElement>('input[name="aircraft"]:checked');
     return {
       exaggeration: Number(exaggeration.value),
       contourInterval: Number(checked?.value ?? 0),
@@ -106,6 +115,7 @@ export function mountControls(
       imageryOpacity: Number(img?.value ?? 0),
       currents: currents?.value === '1',
       buoys: buoys?.value === '1',
+      aircraft: aircraftChoice?.value === '1',
     };
   };
 
@@ -216,6 +226,7 @@ export function mountAbout(dialog: HTMLDialogElement, toggle: HTMLButtonElement)
 function restoreDepthReadout(el: HTMLElement): void {
   if (el.querySelector('.readout-ll')) {
     el.querySelector('.readout-buoy')?.remove();
+    el.querySelector('.readout-aircraft')?.remove();
     return;
   }
   el.replaceChildren();
@@ -231,6 +242,7 @@ function restoreDepthReadout(el: HTMLElement): void {
 /** Buoy focus/hover wins over depth pick until blur/leave. */
 export function setBuoyReadout(el: HTMLElement, text: string | null): void {
   if (text != null) {
+    delete el.dataset.aircraft;
     el.dataset.buoy = '1';
     let node = el.querySelector<HTMLElement>('.readout-buoy');
     if (!node) {
@@ -248,11 +260,32 @@ export function setBuoyReadout(el: HTMLElement, text: string | null): void {
   restoreDepthReadout(el);
 }
 
+/** Aircraft focus/hover wins over depth pick until blur/leave. */
+export function setAircraftReadout(el: HTMLElement, text: string | null): void {
+  if (text != null) {
+    delete el.dataset.buoy;
+    el.dataset.aircraft = '1';
+    let node = el.querySelector<HTMLElement>('.readout-aircraft');
+    if (!node) {
+      el.replaceChildren();
+      node = document.createElement('span');
+      node.className = 'readout-aircraft';
+      el.append(node);
+    }
+    if (node.textContent !== text) {
+      node.textContent = text;
+    }
+    return;
+  }
+  delete el.dataset.aircraft;
+  restoreDepthReadout(el);
+}
+
 export function setReadout(
   el: HTMLElement,
   sample: { lon: number; lat: number; elevation: number | null } | null,
 ): void {
-  if (el.dataset.buoy === '1') {
+  if (el.dataset.buoy === '1' || el.dataset.aircraft === '1') {
     return;
   }
   const llEl = el.querySelector('.readout-ll');

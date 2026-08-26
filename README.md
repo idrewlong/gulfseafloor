@@ -98,6 +98,8 @@ table, the allowed/not-allowed boundary, and the empty retrieval-date column.
 │    /api/ocean/manifest       ocean snapshot inventory (404 until    │
 │    /api/ocean/currents       `make ocean`; snapshot, air-gap safe)  │
 │    /api/ocean/buoys                                                 │
+│    /api/aircraft             live ADS-B (OpenSky; not a snapshot;   │
+│                              404 if GULF_AIRCRAFT=0)                │
 │    embedded static assets (single binary, no CDN)                   │
 └──────────────────┬──────────────────────────────────────────────────┘
                    ▼
@@ -133,12 +135,15 @@ There is no Node runtime, no nginx config, and no CDN at serve time. That
 is the unit you copy onto a disconnected machine. See
 [ADR 0002](docs/adr/0002-go-tile-server-vs-static-tiles.md).
 
-**Air-gap as a constraint, not a stretch.** The serve path has no outbound
-calls. Seed tiles travel with the binary (local) or inside a Zarf tarball
-(cluster). The ocean overlay is the same: `GET /api/ocean/manifest`,
+**Air-gap as a constraint, not a stretch.** Terrain tiles and the ocean
+overlay have no outbound calls at serve time. Seed tiles travel with the
+binary (local) or inside a Zarf tarball (cluster). `GET /api/ocean/manifest`,
 `/api/ocean/currents`, and `/api/ocean/buoys` serve the last snapshot from
-`data/ocean/` (404 until `HYCOM_NCSS=https://ncss.hycom.org/thredds/ncss/grid/GLBy0.08/latest make ocean`). GDAL, SNS, S3, HYCOM, and NDBC
-exist only on ingest, which is not required to view already-built tiles.
+`data/ocean/` (404 until `HYCOM_NCSS=https://ncss.hycom.org/thredds/ncss/grid/GLBy0.08/latest make ocean`). `GET /api/aircraft` is the live
+exception: the server polls OpenSky (adsb.lol fallback) only while a client
+asks. `GULF_AIRCRAFT=0` returns 404 so an air-gap still serves terrain and
+ocean. GDAL, SNS, S3, HYCOM, and NDBC exist only on ingest, which is not
+required to view already-built tiles.
 
 The renderer is three.js / WebGL2 on a planar Web Mercator quad, not a
 WGS84 ellipsoid. Cesium is the documented stretch, not the current target.
@@ -321,6 +326,7 @@ Open [http://127.0.0.1:8080](http://127.0.0.1:8080).
 | `GULF_TILE_DIR` | `data/tiles` | on-disk XYZ pyramid |
 | `GULF_WEB_DIR` | `web/dist` | SPA root if `index.html` is there; otherwise the binary embed |
 | `GULF_CORS_ORIGIN` | empty (same-origin only) | single allowed origin; `*` is ignored, never emitted |
+| `GULF_AIRCRAFT` | enabled unless `0` | `0` disables `GET /api/aircraft` (404). Live ADS-B; not required for tiles or ocean snapshots |
 | `LOG_FORMAT` | `text` | `json` for a collector; anything else is text |
 
 See [`docs/deployment.md`](docs/deployment.md).

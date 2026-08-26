@@ -76,6 +76,8 @@ of Changes before first pull.**
 | HYCOM | Public THREDDS NCSS `https://ncss.hycom.org/thredds/ncss/grid/GLBy0.08/latest`. Retrieved 2026-08-26T00:15:02Z (classic NetCDF, surface `vertCoord=0`). Snapshot validTime 2026-08-26T00:00:00Z. | Public model output; distributor terms on the THREDDS node in use. | Acknowledge the HYCOM consortium and the specific run / experiment ID. | No |
 | NDBC buoys | [ndbc.noaa.gov](https://www.ndbc.noaa.gov/). No API key. Retrieved 2026-08-26T00:15:02Z via `make ocean`. | NOAA open / NODD-class public data. | Same NODD rules. | No |
 | Argo floats | [argo.ucsd.edu](https://argo.ucsd.edu/). NetCDF profiles. | Freely available; collected and distributed by the International Argo Program and contributing national programmes. | Required: “These data were collected and made freely available by the International Argo Program and the national programs that contribute to it. (https://argo.ucsd.edu, https://www.ocean-ops.org). The Argo Program is part of the Global Ocean Observing System.” | No |
+| OpenSky Network | `https://opensky-network.org/api/states/all` bbox, anonymous, no key. Live at view time via `/api/aircraft`. | OpenSky terms for non-commercial/research use of the REST API. | Acknowledge The OpenSky Network. No endorsement. Not for navigation. | No |
+| adsb.lol | `https://api.adsb.lol/v2/lat/{lat}/lon/{lon}/dist/{nm}` fallback only. | ODbL as documented by the API. | Acknowledge adsb.lol / feeders. No endorsement. | No |
 
 Fill the retrieval date in a follow-up commit at first pull, per row,
 as an ISO date plus the exact key or URL. Until then leave the
@@ -98,6 +100,20 @@ currents validTime `2026-08-26T00:00:00Z`. Files live in `data/ocean/` (gitignor
 CSV is not offered on that node; `make ocean` requests classic NetCDF
 (`accept=netcdf`) and omits `time=latest` (invalid on this FMRC), with
 surface `vertCoord=0`. CI does not run `make ocean`.
+
+---
+
+## Live aircraft
+
+Live ADS-B positions are not vendored and are not an ocean-style snapshot.
+`GET /api/aircraft` is fetched at view time from The OpenSky Network
+(anonymous REST bbox), with adsb.lol as fallback. The server polls only
+when a client asks, with a 10 s floor. Anonymous OpenSky allows 400
+credits/day; this AOI is about one credit per fetch.
+
+Set `GULF_AIRCRAFT=0` for an air-gap: the route returns 404, the bathymetry
+toggle disables, and terrain plus ocean snapshots still work. CI does not
+hit the live feeds.
 
 ---
 

@@ -75,6 +75,7 @@
       <aside id="locator" class="locator" aria-label="Locator map of the northern Gulf of Mexico"></aside>
       <div id="geo-labels" class="geo-labels" aria-hidden="true"></div>
       <div id="buoy-marks" hidden></div>
+      <div id="aircraft-marks" hidden></div>
       <p id="caption" class="scene-caption">
         Looking north · Mississippi Sound · synthetic depths · 1× vertical
       </p>
@@ -130,6 +131,14 @@
             <span class="ocean-layer">Buoys</span>
             <label><input type="radio" name="buoys" value="0" /> Off</label>
             <label><input type="radio" name="buoys" value="1" checked /> On</label>
+          </div>
+        </fieldset>
+
+        <fieldset id="aircraft" class="control-block">
+          <legend>Aircraft</legend>
+          <div class="radio-row">
+            <label><input type="radio" name="aircraft" value="0" /> Off</label>
+            <label><input type="radio" name="aircraft" value="1" checked /> On</label>
           </div>
         </fieldset>
 
@@ -197,6 +206,15 @@
               of the HYCOM consortium
               (<span id="hycom-dataset">dataset id when present</span>).
               Buoy observations are NOAA NDBC open data.
+            </p>
+          </div>
+          <div class="aircraft-about">
+            <h3>Aircraft overlay</h3>
+            <p>
+              On bathymetry, live public ADS-B positions over this box can appear as
+              heading marks. Data from The OpenSky Network, with adsb.lol as fallback.
+              Not for navigation. Not a snapshot; this layer is empty with the network
+              unplugged. Do not infer endorsement by OpenSky or adsb.lol.
             </p>
           </div>
           <h3>Two views</h3>
