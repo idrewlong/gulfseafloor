@@ -10,9 +10,9 @@ import "math"
 const (
 	mPerDegLat = 111_320.0
 	// Reference latitude for the local equirectangular projection. The AOI is
-	// 0.6° tall, so a single scale factor is well inside the error already
+	// about 1.3° tall; a single scale factor is inside the error already
 	// accepted by a synthetic heightfield.
-	projRefLat = 30.28
+	projRefLat = 30.14
 )
 
 var mPerDegLon = mPerDegLat * math.Cos(projRefLat*math.Pi/180)

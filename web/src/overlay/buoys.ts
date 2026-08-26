@@ -1,4 +1,5 @@
-import { visibleLabelIds, MIN_LABEL_PX, type LabelCandidate } from '../ui/labelLayout.ts';
+import { bboxContains, type BBox } from '../geo.ts';
+import { type LabelCandidate } from '../ui/labelLayout.ts';
 import { setBuoyReadout } from '../ui/controls.ts';
 import { barbSvg } from './windBarb.ts';
 import { BUOY_RANK, buoyReadout } from './oceanUi.ts';
@@ -92,12 +93,18 @@ export function parseBuoysJson(raw: unknown): { validTime: string; stations: Buo
   return { validTime: o.validTime, stations };
 }
 
+/** Stations whose lon/lat lie on the chart clip. Off-AOI glyphs sit in empty space. */
+export function stationsOnChart(stations: readonly BuoyStation[], aoi: BBox): BuoyStation[] {
+  return stations.filter((s) => bboxContains(aoi, s.lon, s.lat));
+}
+
 export function layoutBuoyVisibility(
-  placeCandidates: LabelCandidate[],
+  _placeCandidates: LabelCandidate[],
   stations: readonly BuoyStation[],
   project: ProjectFn,
   width: number,
   height: number,
+  aoi?: BBox,
 ): {
   visible: Set<number>;
   candidates: LabelCandidate[];
@@ -105,9 +112,14 @@ export function layoutBuoyVisibility(
 } {
   const candidates: LabelCandidate[] = [];
   const positions: Array<{ x: number; y: number } | null> = [];
+  const visible = new Set<number>();
   for (let i = 0; i < stations.length; i++) {
     const st = stations[i];
     if (!st) {
+      positions.push(null);
+      continue;
+    }
+    if (aoi && !bboxContains(aoi, st.lon, st.lat)) {
       positions.push(null);
       continue;
     }
@@ -117,11 +129,11 @@ export function layoutBuoyVisibility(
     if (on && pos) {
       positions.push(pos);
       candidates.push({ id: BUOY_ID_BASE + i, x: pos.x, y: pos.y, rank: BUOY_RANK });
+      visible.add(BUOY_ID_BASE + i);
     } else {
       positions.push(null);
     }
   }
-  const visible = visibleLabelIds([...placeCandidates, ...candidates], MIN_LABEL_PX);
   return { visible, candidates, positions };
 }
 
@@ -180,7 +192,7 @@ function makeMark(station: BuoyStation): HTMLButtonElement {
   return btn;
 }
 
-export function mountBuoys(root: HTMLElement, stations: BuoyStation[]): BuoysHandle {
+export function mountBuoys(root: HTMLElement, stations: BuoyStation[], aoi?: BBox): BuoysHandle {
   root.replaceChildren();
   const buttons = stations.map((st) => {
     const btn = makeMark(st);
@@ -218,6 +230,7 @@ export function mountBuoys(root: HTMLElement, stations: BuoyStation[]): BuoysHan
       project,
       width,
       height,
+      aoi,
     );
     for (let i = 0; i < buttons.length; i++) {
       const btn = buttons[i];
@@ -237,7 +250,7 @@ export function mountBuoys(root: HTMLElement, stations: BuoyStation[]): BuoysHan
   return {
     layout: apply,
     candidates(project, width, height) {
-      return layoutBuoyVisibility([], stations, project, width, height).candidates;
+      return layoutBuoyVisibility([], stations, project, width, height, aoi).candidates;
     },
     setEnabled(on) {
       enabled = on;

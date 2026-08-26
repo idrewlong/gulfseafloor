@@ -1,6 +1,14 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { buoyMarkEngaged, engagedBuoyStation, layoutBuoyVisibility, parseBuoysJson, type BuoyStation } from './buoys.ts';
+import { AOI } from '../geo.ts';
+import {
+  buoyMarkEngaged,
+  engagedBuoyStation,
+  layoutBuoyVisibility,
+  parseBuoysJson,
+  stationsOnChart,
+  type BuoyStation,
+} from './buoys.ts';
 import { BUOY_RANK } from './oceanUi.ts';
 
 describe('parseBuoysJson', () => {
@@ -38,6 +46,22 @@ describe('parseBuoysJson', () => {
   });
 });
 
+describe('stationsOnChart', () => {
+  it('drops stations outside the AOI even if they project on screen', () => {
+    const kept = stationsOnChart(
+      [
+        { id: 'WYCM6', lon: -89.081, lat: 30.36 },
+        { id: 'OFF', lon: -91, lat: 28 },
+      ],
+      AOI,
+    );
+    assert.deepEqual(
+      kept.map((s) => s.id),
+      ['WYCM6'],
+    );
+  });
+});
+
 describe('layoutBuoyVisibility', () => {
   const project = (lon: number, lat: number): { x: number; y: number } => ({
     x: lon,
@@ -61,17 +85,24 @@ describe('layoutBuoyVisibility', () => {
     );
   });
 
-  it('hides a buoy that sits too close to a place label', () => {
+  it('keeps a buoy on its projected point even when a place label is closer', () => {
     const stations: BuoyStation[] = [{ id: 'WYCM6', lon: 12, lat: 11 }];
-    const { visible } = layoutBuoyVisibility(
+    const { visible, positions } = layoutBuoyVisibility(
       [{ id: 0, x: 10, y: 10, rank: 1 }],
       stations,
       project,
       800,
       400,
     );
-    assert.equal(visible.has(0), true);
+    assert.equal(visible.has(1000), true);
+    assert.deepEqual(positions[0], { x: 12, y: 11 });
+  });
+
+  it('does not draw a station outside the AOI even if project returns on-screen pixels', () => {
+    const stations: BuoyStation[] = [{ id: 'OFF', lon: 200, lat: 50 }];
+    const { visible, positions } = layoutBuoyVisibility([], stations, project, 800, 400, AOI);
     assert.equal(visible.has(1000), false);
+    assert.equal(positions[0], null);
   });
 });
 

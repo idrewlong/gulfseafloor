@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"path/filepath"
 	"strconv"
+
+	"github.com/idrewlong/gulfseafloor/internal/tiles"
 )
 
 type manifest struct {
@@ -31,8 +33,8 @@ type region struct {
 var mississippiSound = manifest{
 	Regions: []region{{
 		ID:        "mississippi-sound",
-		Name:      "Mississippi Sound",
-		BBox:      []float64{-89.70, 29.95, -87.85, 30.52},
+		Name:      "Mississippi Bight",
+		BBox:      []float64{tiles.AOI.West, tiles.AOI.South, tiles.AOI.East, tiles.AOI.North},
 		CRS:       "EPSG:4326",
 		MinZoom:   6,
 		MaxZoom:   14,

@@ -25,9 +25,9 @@ EPS_COAST_WEB = 0.0006  # ~65 m
 
 # The mainland ring closes outside every coastline node so the synthetic edges
 # can never be the nearest "shore" to a sampled point.
-CLOSE_WEST = -89.78
-CLOSE_EAST = -87.70
-CLOSE_NORTH = 30.82
+CLOSE_WEST = -90.35
+CLOSE_EAST = -87.30
+CLOSE_NORTH = 31.05
 
 
 def perp_dist(p, a, b) -> float:
@@ -193,6 +193,8 @@ def main() -> None:
     deer = simplify_rings(outer_rings(pick_feature(load("deer.json"))), EPS_ISLAND)
     stlouis = simplify_rings(outer_rings(pick_feature(load("stlouis.json"))), EPS_BAY)
     mobile = simplify_rings(outer_rings(pick_feature(load("mobile.json"))), EPS_BAY)
+    pontchartrain = simplify_rings(outer_rings(pick_feature(load("pontchartrain.json"))), EPS_BAY)
+    perdido = simplify_rings(outer_rings(pick_feature(load("perdido.json"))), EPS_BAY)
 
     west_ship = ship[0]
     east_ship = ship[1] if len(ship) > 1 else []
@@ -229,7 +231,7 @@ def main() -> None:
         "attribution": attribution,
         "coast": coast,
         "mainland": mainland_ring(coast),
-        "bays": stlouis + mobile,
+        "bays": stlouis + mobile + pontchartrain + perdido,
         "islands": islands,
     }
     text = json.dumps(payload, separators=(",", ":"))

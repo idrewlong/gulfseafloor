@@ -5,6 +5,22 @@ import (
 	"testing"
 )
 
+func TestAOICoversNewOrleansToOrangeBeachAnd42354(t *testing.T) {
+	points := []struct {
+		name     string
+		lon, lat float64
+	}{
+		{"CARL1 New Orleans", -90.135, 29.933},
+		{"PPTA1 Orange Beach / Perdido", -87.556, 30.279},
+		{"42354 Chandeleur SE", -88.643, 29.579},
+	}
+	for _, p := range points {
+		if !AOI.Contains(p.lon, p.lat) {
+			t.Errorf("%s (%.3f, %.3f) must lie inside AOI %+v", p.name, p.lon, p.lat, AOI)
+		}
+	}
+}
+
 func TestLonLatToTileKnown(t *testing.T) {
 	// Null Island at z=0 is tile 0/0/0.
 	got := LonLatToTile(0, 0, 0)

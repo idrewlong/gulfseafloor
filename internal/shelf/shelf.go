@@ -177,9 +177,18 @@ func Sample(lon, lat float64) float64 {
 		}
 	}
 
+	inBay := false
+	for _, bay := range f.bays {
+		if bay.contains(lon, lat) {
+			inBay = true
+			break
+		}
+	}
+
 	// The waterline is the real OSM coastline, so the bays, bayous and river
-	// mouths are already cut out of the mainland ring.
-	if f.mainland.contains(lon, lat) {
+	// mouths are already cut out of the mainland ring. Lakes that OSM does not
+	// treat as coastline (Pontchartrain, Perdido) are punched through here.
+	if !inBay && f.mainland.contains(lon, lat) {
 		// Distance runs against the waterline alone. Measuring to the ring
 		// would also measure to the synthetic edges that close it, which made
 		// the plain fall back to sea level at the top of the map.
@@ -201,17 +210,11 @@ func Sample(lon, lat float64) float64 {
 		return h + ripples*0.2
 	}
 
-	// Water: Sound, bays, Lake Borgne, and the Gulf south of the islands.
+	// Water: Sound, bays, Pontchartrain, Borgne, and the Gulf.
 	coastDist := f.coast.nearest(lon, lat)
-	inBay := false
-	for _, bay := range f.bays {
-		if bay.contains(lon, lat) {
-			inBay = true
-			break
-		}
-	}
 	islandDist := f.islandShore.nearest(lon, lat)
 	shore := math.Min(coastDist, islandDist)
+	lagoon := inBay || (lon < -88.80 && lat > 29.68)
 
 	// Sound and bay floors deepen away from their shorelines. A single flat
 	// value reads as a plate once the view is exaggerated. Distance runs to the
@@ -219,16 +222,23 @@ func Sample(lon, lat float64) float64 {
 	// shallow instead of taking the depth of open water the same distance from
 	// the mainland.
 	depth := -2.6 - 2.4*smoothstep(0, 9_000, shore)
-	if inBay {
+	if lagoon {
 		depth = -1.6 - 1.6*smoothstep(0, 3_000, shore)
 	}
 
-	// Open shelf south of the barrier chain, keyed to distance offshore rather
-	// than to latitude so contours follow the island chain instead of forming
-	// straight east–west bands.
-	if offshore := 1 - smoothstep(30.150, 30.215, lat); offshore > 0 {
-		shelf := -7.5 - 30*smoothstep(0, 26_000, shore)
-		depth = depth*(1-offshore) + shelf*offshore
+	// Open shelf: south of the MS barrier chain, or the Alabama gulf east of
+	// Dauphin — not the western lagoons (Borgne, Breton, Chandeleur Sound).
+	if !lagoon && (lon > -88.05 || lat < 30.16) {
+		inner := -7.5 - 30*smoothstep(0, 26_000, shore)
+		outerT := 1 - smoothstep(29.50, 30.02, lat)
+		along := 6 * (2*fbm(lon*14, lat*17, 3) - 1) * outerT
+		shelf := inner - 48*outerT + along
+		if lon > -88.05 {
+			depth = shelf
+		} else {
+			offshore := 1 - smoothstep(30.150, 30.215, lat)
+			depth = depth*(1-offshore) + shelf*offshore
+		}
 	}
 
 	// Shoal toward the mainland beach.
@@ -247,8 +257,8 @@ func Sample(lon, lat float64) float64 {
 	if depth > -0.4 {
 		depth = -0.4
 	}
-	if depth < -40 {
-		depth = -40
+	if depth < -90 {
+		depth = -90
 	}
 	return depth
 }

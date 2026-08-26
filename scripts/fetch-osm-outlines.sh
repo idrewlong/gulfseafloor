@@ -17,9 +17,9 @@ UA="gulf-seafloor-viewer/0.2 (outline build; https://github.com/idrewlong/gulfse
 OVERPASS="${OVERPASS_URL:-https://overpass-api.de/api/interpreter}"
 NOMINATIM="${NOMINATIM_URL:-https://nominatim.openstreetmap.org/search}"
 
-# Generous margin around the AOI (-89.70,29.95,-87.85,30.52) so the stitched
+# Generous margin around the AOI (-90.20,29.50,-87.45,30.78) so the stitched
 # coastline runs past both ends and the mainland ring can close outside it.
-COAST_BBOX="29.90,-89.90,30.80,-87.70"
+COAST_BBOX="29.40,-90.40,30.95,-87.30"
 
 mkdir -p "$OSM_DIR"
 
@@ -54,6 +54,9 @@ fetch_nominatim dauphin "Dauphin Island, Mobile County, Alabama"
 fetch_nominatim deer "Deer Island, Biloxi, Mississippi"
 fetch_nominatim stlouis "Bay of Saint Louis, Mississippi"
 fetch_nominatim mobile "Mobile Bay, Alabama"
+fetch_nominatim pontchartrain "Lake Pontchartrain, Louisiana"
+fetch_nominatim borgne "Lake Borgne, Louisiana"
+fetch_nominatim perdido "Perdido Bay, Alabama"
 
 echo
 echo "done. now run: python3 internal/shelf/gen_outlines.py"

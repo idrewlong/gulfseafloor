@@ -29,3 +29,15 @@ export function makeTrailGeometry(): THREE.BufferGeometry {
   geo.setDrawRange(0, verts);
   return geo;
 }
+
+export function makePointGeometry(): THREE.BufferGeometry {
+  const ids = new Float32Array(PARTICLE_COUNT);
+  for (let i = 0; i < PARTICLE_COUNT; i++) {
+    ids[i] = i;
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(PARTICLE_COUNT * 3), 3));
+  geo.setAttribute('aId', new THREE.BufferAttribute(ids, 1));
+  geo.setDrawRange(0, PARTICLE_COUNT);
+  return geo;
+}

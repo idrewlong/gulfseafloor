@@ -14,11 +14,11 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DEST_DIR="${ROOT}/data/raw"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-# WGS84 AOI: Mississippi Sound, Lake Borgne to Dauphin Island.
-AOI_WEST="-89.70"
-AOI_SOUTH="29.95"
-AOI_EAST="-87.85"
-AOI_NORTH="30.52"
+# WGS84 AOI: New Orleans to Orange Beach, south to NDBC 42354.
+AOI_WEST="-90.20"
+AOI_SOUTH="29.50"
+AOI_EAST="-87.45"
+AOI_NORTH="30.78"
 
 NBS_BUCKET="s3://noaa-ocs-nationalbathymetry-pds"
 REGION="${AWS_DEFAULT_REGION:-us-east-1}"

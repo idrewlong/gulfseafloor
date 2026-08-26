@@ -4,6 +4,13 @@ export const BUOY_RANK = 10;
 
 export type LayerAvailability = { currents: boolean; buoys: boolean };
 
+export type ViewerMode = 'globe' | 'bathymetry';
+
+/** Ocean controls and glyphs belong on the planar chart only. */
+export function oceanChromeHidden(mode: ViewerMode): boolean {
+  return mode === 'globe';
+}
+
 export function availabilityFromHttp(currentsStatus: number, buoysStatus: number): LayerAvailability {
   return {
     currents: currentsStatus === 200,

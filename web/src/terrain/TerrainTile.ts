@@ -99,8 +99,17 @@ export function getSharedTerrainGeometry(): THREE.BufferGeometry {
   return sharedGeometry;
 }
 
-function heightTextureFromBitmap(bitmap: ImageBitmap): THREE.Texture {
-  const tex = new THREE.Texture(bitmap);
+function heightTextureFromHeights(heights: ImageData): THREE.DataTexture {
+  const w = heights.width;
+  const h = heights.height;
+  const data = new Uint16Array(w * h);
+  for (let i = 0; i < w * h; i++) {
+    const r = heights.data[i * 4] ?? 0;
+    const g = heights.data[i * 4 + 1] ?? 0;
+    const b = heights.data[i * 4 + 2] ?? 0;
+    data[i] = THREE.DataUtils.toHalfFloat(decodeTerrarium(r, g, b));
+  }
+  const tex = new THREE.DataTexture(data, w, h, THREE.RedFormat, THREE.HalfFloatType);
   tex.colorSpace = THREE.NoColorSpace;
   tex.magFilter = THREE.LinearFilter;
   tex.minFilter = THREE.LinearFilter;
@@ -120,6 +129,7 @@ function imageryTextureFromBitmap(bitmap: ImageBitmap): THREE.Texture {
   tex.magFilter = THREE.LinearFilter;
   tex.minFilter = THREE.LinearMipmapLinearFilter;
   tex.generateMipmaps = true;
+  tex.anisotropy = THREE.Texture.DEFAULT_ANISOTROPY;
   tex.flipY = true;
   tex.wrapS = THREE.ClampToEdgeWrapping;
   tex.wrapT = THREE.ClampToEdgeWrapping;
@@ -191,9 +201,10 @@ export class TerrainTile {
   ) {
     this.coord = coord;
     this.span = spanMetres(coord);
-    this.texture = heightTextureFromBitmap(bitmap);
-    this.imagery = emptyImageryTexture();
     this.heights = imageDataFromBitmap(bitmap);
+    bitmap.close();
+    this.texture = heightTextureFromHeights(this.heights);
+    this.imagery = emptyImageryTexture();
 
     const bounds = tileBounds(coord);
     this.clip = intersectBBox(bounds, aoi) ?? bounds;
@@ -218,10 +229,6 @@ export class TerrainTile {
         uTexelSize: { value: new THREE.Vector2(1 / w, 1 / h) },
         uUvOffset: { value: new THREE.Vector2(this.uvRect.offsetX, this.uvRect.offsetY) },
         uUvScale: { value: new THREE.Vector2(this.uvRect.scaleX, this.uvRect.scaleY) },
-        // Metres of skirt, before exaggeration. The shader scales it the same
-        // way it scales elevation, so the curtain always stays under the
-        // terrain instead of towering over it at low exaggeration.
-        uSkirtDrop: { value: 12 / this.span },
         uColorLUT: shared.uColorLUT,
         uSunDir: shared.uSunDir,
         uContourInterval: shared.uContourInterval,

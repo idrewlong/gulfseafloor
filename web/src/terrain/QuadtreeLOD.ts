@@ -22,13 +22,13 @@ const MAX_IMAGERY_RETRIES = 2;
 
 /**
  * Zooms up to here stay resident for the whole AOI, so there is always a
- * complete coarse surface underneath and panning never opens a hole. 33 tiles.
+ * complete coarse surface underneath and panning never opens a hole. ~54 tiles.
  */
 const BASE_ZOOM = 10;
 /**
  * Textures held above the base pyramid. Each tile costs a height texture, an
  * imagery texture with mipmaps and a CPU copy of the heights for picking, so
- * the whole AOI cannot be resident at the finest zooms — z14 alone is 2635
+ * the whole AOI cannot be resident at the finest zooms — z14 alone is ~8600
  * tiles. Least-recently-wanted tiles are evicted past this.
  */
 const TILE_BUDGET = 180;

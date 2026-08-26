@@ -1,12 +1,12 @@
-/** Mississippi Sound AOI, WGS84 — Lake Borgne to Dauphin Island. */
+/** Mississippi Bight AOI, WGS84 — New Orleans to Orange Beach, south to 42354. */
 export const AOI = {
-  west: -89.7,
-  south: 29.95,
-  east: -87.85,
-  north: 30.52,
+  west: -90.2,
+  south: 29.5,
+  east: -87.45,
+  north: 30.78,
 } as const;
 
-export const ORIGIN = { lon: -88.78, lat: 30.28 } as const;
+export const ORIGIN = { lon: -88.82, lat: 30.14 } as const;
 
 export const DEFAULT_MIN_ZOOM = 6;
 export const DEFAULT_MAX_ZOOM = 14;

@@ -120,7 +120,10 @@ body {
   display: none;
 }
 
-#app.is-globe #ocean { display: none; }
+#app.is-globe #ocean,
+#app.is-globe .ocean-about {
+  display: none;
+}
 #app.is-globe #buoy-marks {
   visibility: hidden;
   pointer-events: none;
@@ -419,6 +422,7 @@ body {
 
 .legend-readout {
   display: block;
+  margin: 0;
   text-align: center;
   font-size: 13px;
   font-weight: 600;
@@ -438,63 +442,6 @@ body {
 .legend-ramp {
   position: absolute;
   inset: 2px;
-}
-
-.legend-handle {
-  position: absolute;
-  inset: 0;
-  margin: 0;
-}
-
-.legend-handle-max {
-  z-index: 2;
-}
-
-.legend-handle-min {
-  z-index: 1;
-}
-
-.legend-handle:focus-within {
-  z-index: 3;
-}
-
-.legend-handle input[type='range'] {
-  writing-mode: vertical-lr;
-  direction: rtl;
-  width: 100%;
-  height: 100%;
-  margin: 0;
-  padding: 0;
-  background: transparent;
-  appearance: none;
-}
-
-.legend-handle input[type='range']::-webkit-slider-runnable-track {
-  width: 2px;
-  background: transparent;
-}
-
-.legend-handle input[type='range']::-webkit-slider-thumb {
-  appearance: none;
-  width: 28px;
-  height: 8px;
-  background: var(--ink);
-  border: 1px solid var(--land);
-  cursor: ns-resize;
-}
-
-.legend-handle input[type='range']::-moz-range-track {
-  width: 2px;
-  background: transparent;
-}
-
-.legend-handle input[type='range']::-moz-range-thumb {
-  width: 28px;
-  height: 8px;
-  border: 1px solid var(--land);
-  background: var(--ink);
-  border-radius: 0;
-  cursor: ns-resize;
 }
 
 .controls {

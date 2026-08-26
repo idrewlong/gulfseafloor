@@ -1,10 +1,15 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
+  FLOW_SCALE,
+  TRAIL_LAG_SEC,
+  laggedTrailMetres,
   sampleUV,
   advect,
   shouldRespawn,
   staticArrows,
+  trailLagMix,
+  trailTailOffset,
   velocityGridFromJson,
   type VelocityGrid,
 } from './currentsField.ts';
@@ -52,6 +57,32 @@ describe('advect', () => {
     const next = advect(-89, 30, 1, 0, 1, 1);
     assert.ok(next.lon > -89);
     assert.ok(Math.abs(next.lat - 30) < 1e-9);
+  });
+});
+
+describe('laggedTrailMetres', () => {
+  it('is a few metres for a 60 fps one-frame segment — invisible on the Sound', () => {
+    const metres = laggedTrailMetres(0.5, FLOW_SCALE, 1 / 60);
+    assert.ok(metres > 15 && metres < 30);
+  });
+
+  it('is kilometres for a typical shelf speed when the tail lags TRAIL_LAG_SEC', () => {
+    const metres = laggedTrailMetres(0.5, FLOW_SCALE, TRAIL_LAG_SEC);
+    assert.equal(metres, 0.5 * FLOW_SCALE * TRAIL_LAG_SEC);
+    assert.ok(metres >= 4000);
+  });
+});
+
+describe('trailLagMix', () => {
+  it('is ~dt/lag for a short step so the tail trails the head', () => {
+    const k = trailLagMix(1 / 60, 4);
+    assert.ok(k > 0.003 && k < 0.006);
+  });
+});
+
+describe('trailTailOffset', () => {
+  it('is kilometres along flow for a 4 s lag at shelf speed', () => {
+    assert.deepEqual(trailTailOffset(0.5, 0, TRAIL_LAG_SEC, FLOW_SCALE), { x: 5000, y: 0 });
   });
 });
 

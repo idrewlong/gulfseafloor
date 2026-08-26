@@ -29,7 +29,7 @@ func main() {
 	hycom := *hycomURL
 	if !strings.Contains(hycom, "?") {
 		hycom += fmt.Sprintf(
-			"?var=water_u&var=water_v&north=%g&west=%g&east=%g&south=%g&time=latest&accept=csv",
+			"?var=water_u&var=water_v&north=%g&west=%g&east=%g&south=%g&horizStride=1&vertCoord=0&accept=netcdf",
 			tiles.AOI.North, tiles.AOI.West, tiles.AOI.East, tiles.AOI.South,
 		)
 	}
@@ -46,7 +46,7 @@ func main() {
 		East:  tiles.AOI.East,
 		North: tiles.AOI.North,
 	}
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := &http.Client{Timeout: 90 * time.Second}
 	if err := ocean.FetchSnapshot(context.Background(), client, ep, aoi, *out); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)

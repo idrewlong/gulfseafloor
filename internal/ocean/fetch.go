@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -33,25 +34,28 @@ func FetchSnapshot(ctx context.Context, client *http.Client, ep Endpoints, aoi B
 	}
 	retrieved := time.Now().UTC()
 
-	hycomBody, status, err := getCapped(ctx, client, ep.HYCOM, hycomCSVLimit)
+	hycomBody, status, err := getCapped(ctx, client, ep.HYCOM, hycomCSVLimit, false)
 	if err != nil {
 		return fmt.Errorf("ocean: fetch hycom: %w", err)
 	}
 	if status != http.StatusOK {
 		return fmt.Errorf("ocean: fetch hycom: HTTP %d", status)
 	}
-	currents, err := ParseHYCOMCSV(bytes.NewReader(hycomBody), Source{
+	currents, err := ParseHYCOM(bytes.NewReader(hycomBody), Source{
 		Name: "HYCOM",
 		URL:  ep.HYCOM,
 	})
 	if err != nil {
 		return err
 	}
+	if currents.Source.Dataset == "" {
+		currents.Source.Dataset = hycomDatasetFromURL(ep.HYCOM)
+	}
 	if !currents.BBox.Intersects(aoi) {
 		return fmt.Errorf("ocean: fetch hycom: bbox does not intersect AOI")
 	}
 
-	tableBody, status, err := getCapped(ctx, client, ep.StationTable, stationTableLimit)
+	tableBody, status, err := getCapped(ctx, client, ep.StationTable, stationTableLimit, false)
 	if err != nil {
 		return fmt.Errorf("ocean: fetch station table: %w", err)
 	}
@@ -98,12 +102,13 @@ func fetchStations(ctx context.Context, client *http.Client, ep Endpoints, rows 
 			}
 			defer func() { <-sem }()
 
-			url := prefix + row.ID + ".txt"
-			body, status, err := getCapped(ctx, client, url, realtime2Limit)
+			id := strings.ToUpper(row.ID)
+			url := prefix + id + ".txt"
+			body, status, err := getCapped(ctx, client, url, realtime2Limit, true)
 			if err != nil || status == http.StatusNotFound || status != http.StatusOK {
 				return
 			}
-			st, err := ParseRealtime2(row.ID, bytes.NewReader(body))
+			st, err := ParseRealtime2(id, bytes.NewReader(body))
 			if err != nil {
 				return
 			}
@@ -122,7 +127,7 @@ func fetchStations(ctx context.Context, client *http.Client, ep Endpoints, rows 
 	return stations, nil
 }
 
-func getCapped(ctx context.Context, client *http.Client, rawURL string, limit int64) ([]byte, int, error) {
+func getCapped(ctx context.Context, client *http.Client, rawURL string, limit int64, truncate bool) ([]byte, int, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
 		return nil, 0, err
@@ -138,7 +143,24 @@ func getCapped(ctx context.Context, client *http.Client, rawURL string, limit in
 		return nil, res.StatusCode, err
 	}
 	if int64(len(data)) > limit {
-		return nil, res.StatusCode, fmt.Errorf("response exceeds %d bytes", limit)
+		if !truncate {
+			return nil, res.StatusCode, fmt.Errorf("response exceeds %d bytes", limit)
+		}
+		data = data[:limit]
 	}
 	return data, res.StatusCode, nil
+}
+
+func hycomDatasetFromURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	segs := strings.Split(strings.Trim(u.Path, "/"), "/")
+	for i, s := range segs {
+		if strings.HasPrefix(s, "GLB") && i+1 < len(segs) {
+			return segs[i] + "/" + segs[i+1]
+		}
+	}
+	return ""
 }

@@ -6,13 +6,13 @@ import (
 	"math"
 )
 
-// AOI is the Mississippi Sound, WGS84 — Lake Borgne to Dauphin Island,
-// mainland to just south of the barrier-island chain.
+// AOI is the Mississippi Bight chart, WGS84 — New Orleans to Orange Beach,
+// mainland to south of NDBC 42354 (Chandeleur Island SE).
 var AOI = BBox{
-	West:  -89.70,
-	South: 29.95,
-	East:  -87.85,
-	North: 30.52,
+	West:  -90.20,
+	South: 29.50,
+	East:  -87.45,
+	North: 30.78,
 }
 
 // BBox is a geographic bounding box in EPSG:4326 degrees.
@@ -104,7 +104,7 @@ func PixelLonLat(t Tile, px, py, tileSize int) (lon, lat float64) {
 		tileSize = 256
 	}
 	n := float64(int(1) << uint(t.Z))
-	lon = (float64(t.X) + (float64(px)+0.5)/float64(tileSize)) / n * 360.0 - 180.0
+	lon = (float64(t.X)+(float64(px)+0.5)/float64(tileSize))/n*360.0 - 180.0
 	y := (float64(t.Y) + (float64(py)+0.5)/float64(tileSize)) / n
 	lat = yToLat(y)
 	return lon, lat
@@ -140,7 +140,7 @@ func SpanMetres(t Tile) float64 {
 }
 
 func yToLat(y float64) float64 {
-	return math.Atan(math.Sinh(math.Pi*(1 - 2*y))) * 180.0 / math.Pi
+	return math.Atan(math.Sinh(math.Pi*(1-2*y))) * 180.0 / math.Pi
 }
 
 func haversineMetres(lon1, lat1, lon2, lat2 float64) float64 {

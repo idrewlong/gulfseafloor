@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { detectFloatOk, makeTrailGeometry } from './currentsGpu.ts';
+import { detectFloatOk, makePointGeometry, makeTrailGeometry } from './currentsGpu.ts';
 import { PARTICLE_COUNT } from './currentsField.ts';
 
 describe('makeTrailGeometry', () => {
@@ -12,6 +12,14 @@ describe('makeTrailGeometry', () => {
     const pos = geo.getAttribute('position');
     assert.ok(pos);
     assert.equal(pos.count, verts);
+  });
+});
+
+describe('makePointGeometry', () => {
+  it('has one vertex per particle so the field is visible as dots', () => {
+    const geo = makePointGeometry();
+    assert.equal(geo.drawRange.count, PARTICLE_COUNT);
+    assert.equal(geo.getAttribute('position').count, PARTICLE_COUNT);
   });
 });
 

@@ -73,8 +73,8 @@ of Changes before first pull.**
 | GEBCO global grid | [gebco.net](https://www.gebco.net/) gridded bathymetry download. No registration. | Public domain. [GEBCO terms of use](https://www.gebco.net/data-products/gridded-bathymetry/terms-of-use): free to copy, adapt, and commercially exploit. Use constitutes acceptance of the disclaimer (not for navigation / safety of navigation). | Required. Form (version-specific), e.g. `GEBCO Compilation Group (2024) GEBCO 2024 Grid (doi:10.5285/1c44ce99-0a0d-5f4f-e063-7086abc0ea0f)`. Must not imply GEBCO, IHO, or IOC endorsement. Must not misrepresent the grid or its source. | No |
 | USGS 3DEP lidar | [AWS Open Data Registry — USGS 3DEP](https://registry.opendata.aws/usgs-lidar/). Topography side of the coastal strip. | U.S. government work, public domain. | Attribution requested (USGS 3DEP). No endorsement implied. | No |
 | SRTM / Copernicus DEM | SRTM via public NASA / OpenTopography-class archives. Copernicus DEM via the Copernicus programme distribution (registration-free mirrors only; if a portal requires an account, do not use that portal). | SRTM: U.S. government work, public domain. Copernicus DEM: Copernicus licence (free use with attribution; no implied endorsement). | SRTM: NASA / NGA collection acknowledgment. Copernicus: “produced using Copernicus WorldDEM-30 © DLR e.V. 2010–2014 and © Airbus Defence and Space GmbH 2014–2018 provided under COPERNICUS by the European Union and ESA; all rights reserved” (confirm the exact string for the edition pulled). | No |
-| HYCOM | Public THREDDS / OPeNDAP; retrieval via `make ocean` (NCSS). Date filled at first successful pull. | Public model output; distributor terms on the THREDDS node in use. | Acknowledge the HYCOM consortium and the specific run / experiment ID. | No |
-| NDBC buoys | [ndbc.noaa.gov](https://www.ndbc.noaa.gov/). No API key. Retrieval via `make ocean`. Date filled at first successful pull. | NOAA open / NODD-class public data. | Same NODD rules. | No |
+| HYCOM | Public THREDDS NCSS `https://ncss.hycom.org/thredds/ncss/grid/GLBy0.08/latest`. Retrieved 2026-08-26T00:15:02Z (classic NetCDF, surface `vertCoord=0`). Snapshot validTime 2026-08-26T00:00:00Z. | Public model output; distributor terms on the THREDDS node in use. | Acknowledge the HYCOM consortium and the specific run / experiment ID. | No |
+| NDBC buoys | [ndbc.noaa.gov](https://www.ndbc.noaa.gov/). No API key. Retrieved 2026-08-26T00:15:02Z via `make ocean`. | NOAA open / NODD-class public data. | Same NODD rules. | No |
 | Argo floats | [argo.ucsd.edu](https://argo.ucsd.edu/). NetCDF profiles. | Freely available; collected and distributed by the International Argo Program and contributing national programmes. | Required: “These data were collected and made freely available by the International Argo Program and the national programs that contribute to it. (https://argo.ucsd.edu, https://www.ocean-ops.org). The Argo Program is part of the Global Ocean Observing System.” | No |
 
 Fill the retrieval date in a follow-up commit at first pull, per row,
@@ -90,10 +90,14 @@ HYCOM surface currents and NDBC station observations are not vendored.
 The viewer serves those files at `/api/ocean/*` with no outbound calls, so
 a machine that already has a snapshot still works with the network unplugged.
 
-Until someone runs a successful pull, the retrieval date stays empty and
-those routes 404. CI does not run `make ocean`. Set `HYCOM_NCSS` to a public
-THREDDS NCSS URL when you pull; pin the dataset id and retrieval UTC here
-on first success.
+First successful pull: **2026-08-26T00:15:02Z**, dataset `GLBy0.08/latest`,
+currents validTime `2026-08-26T00:00:00Z`. Files live in `data/ocean/` (gitignored).
+
+`https://ncss.hycom.org/thredds/ncss/grid/GLBy0.08/latest`
+
+CSV is not offered on that node; `make ocean` requests classic NetCDF
+(`accept=netcdf`) and omits `time=latest` (invalid on this FMRC), with
+surface `vertCoord=0`. CI does not run `make ocean`.
 
 ---
 

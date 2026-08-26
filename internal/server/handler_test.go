@@ -87,6 +87,15 @@ func TestSecurityHeadersPresent(t *testing.T) {
 			t.Fatalf("CSP must not wildcard connect-src: %s", csp)
 		}
 	}
+	if !strings.Contains(csp, "worker-src") || !strings.Contains(csp, "blob:") {
+		t.Fatalf("CSP must allow blob workers for Cesium: %s", csp)
+	}
+	if !strings.Contains(csp, "'unsafe-eval'") {
+		t.Fatalf("CSP must allow unsafe-eval for Cesium module load: %s", csp)
+	}
+	if !strings.Contains(csp, "connect-src 'self'") {
+		t.Fatalf("CSP must pin connect-src to self (no ion): %s", csp)
+	}
 }
 
 func TestNoWildcardCORS(t *testing.T) {
@@ -224,6 +233,34 @@ func TestHealthz(t *testing.T) {
 	}
 	if strings.TrimSpace(rec.Body.String()) != "ok" {
 		t.Fatalf("body %q", rec.Body.String())
+	}
+}
+
+func TestMissingStaticAssetIs404(t *testing.T) {
+	web := t.TempDir()
+	if err := os.WriteFile(filepath.Join(web, "index.html"), []byte("<!doctype html><title>app</title>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := New(Config{
+		TileDir: filepath.Join("testdata", "tiles"),
+		WebDir:  web,
+	})
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/cesium/Workers/not-a-worker.js", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("missing worker: status %d body %q", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), "<!doctype html>") {
+		t.Fatal("SPA fallback must not feed HTML to a .js request")
+	}
+
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/chart/view", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("client route: status %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "<!doctype html>") {
+		t.Fatalf("client route should serve index, got %q", rec.Body.String())
 	}
 }
 

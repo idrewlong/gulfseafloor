@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "test": "node --experimental-strip-types --test src/terrain/pick.test.ts src/terrain/lodPolicy.test.ts src/viewerConfig.test.ts src/globe/terrariumHeights.test.ts src/ui/labelLayout.test.ts src/geo/orient.test.ts src/overlay/currentsField.test.ts src/overlay/currents.test.ts src/overlay/windBarb.test.ts src/overlay/oceanUi.test.ts src/overlay/buoys.test.ts"
+    "test": "node --experimental-strip-types --test src/terrain/pick.test.ts src/terrain/lodPolicy.test.ts src/viewerConfig.test.ts src/globe/terrariumHeights.test.ts src/ui/labelLayout.test.ts src/geo/orient.test.ts src/overlay/currentsField.test.ts src/overlay/currents.test.ts src/overlay/windBarb.test.ts src/overlay/oceanUi.test.ts src/overlay/buoys.test.ts src/lut.test.ts"
   },
   "dependencies": {
     "@fontsource/barlow-condensed": "^5.3.0",

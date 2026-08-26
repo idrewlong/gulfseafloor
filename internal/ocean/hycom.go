@@ -93,6 +93,7 @@ func ParseHYCOMCSV(r io.Reader, src Source) (Currents, error) {
 		if !finite(lon) {
 			return Currents{}, fmt.Errorf("ocean: hycom: row %d: lon: non-finite", i+2)
 		}
+		lon = wrapLon180(lon)
 		u, err := parseVelocity(rec[uCol])
 		if err != nil {
 			return Currents{}, fmt.Errorf("ocean: hycom: row %d: u: %w", i+2, err)
@@ -120,6 +121,20 @@ func ParseHYCOMCSV(r io.Reader, src Source) (Currents, error) {
 	if len(lons) == 0 || len(lats) == 0 {
 		return Currents{}, fmt.Errorf("ocean: hycom: empty grid")
 	}
+	return gridFromCells(cells, lons, lats, validTime, src)
+}
+
+func wrapLon180(lon float64) float64 {
+	for lon > 180 {
+		lon -= 360
+	}
+	for lon < -180 {
+		lon += 360
+	}
+	return lon
+}
+
+func gridFromCells(cells []hycomCell, lons, lats []float64, validTime time.Time, src Source) (Currents, error) {
 	sort.Float64s(lons)
 	sort.Float64s(lats)
 	nx, ny := len(lons), len(lats)
@@ -156,6 +171,21 @@ func ParseHYCOMCSV(r io.Reader, src Source) (Currents, error) {
 		U:    u,
 		V:    v,
 	}, nil
+}
+
+// ParseHYCOM reads an NCSS CSV or classic NetCDF-3 subset.
+func ParseHYCOM(r io.Reader, src Source) (Currents, error) {
+	data, err := io.ReadAll(io.LimitReader(r, hycomCSVLimit))
+	if err != nil {
+		return Currents{}, fmt.Errorf("ocean: hycom: %w", err)
+	}
+	if bytes.HasPrefix(data, []byte("CDF")) {
+		return parseHYCOMNetCDF(data, src)
+	}
+	if len(data) >= 4 && data[0] == 0x89 && bytes.HasPrefix(data[1:], []byte("HDF")) {
+		return Currents{}, fmt.Errorf("ocean: hycom: netcdf4 is not supported; request accept=netcdf")
+	}
+	return ParseHYCOMCSV(bytes.NewReader(data), src)
 }
 
 func dropHYCOMComments(data []byte) ([]byte, error) {

@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -111,5 +112,98 @@ func TestFetchSnapshotRejectsOversizedBody(t *testing.T) {
 	}
 	if !bytes.Equal(prev, now) {
 		t.Fatal("oversized fetch must not replace currents.json")
+	}
+}
+
+func TestFetchSnapshotUppercasesRealtime2ID(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ncss", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "testdata/hycom.csv")
+	})
+	mux.HandleFunc("/data/stations/station_table.txt", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("#id|owner|ttype|hull|name|payload|location|timezone|forecast|note\n" +
+			"wycm6|NWLON|fixed|n/a|Gulfport Harbor|stdmet|30.360 N 89.081 W|CST|n/a|n/a\n"))
+	})
+	mux.HandleFunc("/data/realtime2/WYCM6.txt", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "testdata/realtime2_wycm6.txt")
+	})
+	mux.HandleFunc("/data/realtime2/wycm6.txt", func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "ndbc files are uppercase", http.StatusNotFound)
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	out := t.TempDir()
+	aoi := BBox{West: -89.7, South: 29.95, East: -87.85, North: 30.52}
+	err := FetchSnapshot(context.Background(), srv.Client(), Endpoints{
+		HYCOM:           srv.URL + "/ncss",
+		StationTable:    srv.URL + "/data/stations/station_table.txt",
+		Realtime2Prefix: srv.URL + "/data/realtime2/",
+	}, aoi, out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.Open(filepath.Join(out, "buoys.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	b, err := DecodeBuoys(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(b.Stations) != 1 || b.Stations[0].ID != "WYCM6" {
+		t.Fatalf("lowercase table id must fetch uppercase realtime2: %+v", b.Stations)
+	}
+}
+
+func TestFetchSnapshotTruncatesOversizedRealtime2(t *testing.T) {
+	var body strings.Builder
+	body.WriteString("#YY MM DD hh mm WDIR WSPD GST WVHT DPD APD MWD PRES ATMP WTMP\n")
+	body.WriteString("2026 08 25 23 48 280 2.6 4.1 MM MM MM MM 1014.0 MM 31.2\n")
+	old := "2026 07 10 00 10 MM MM MM 0.3 MM MM MM MM MM 31.4\n"
+	for body.Len() <= int(realtime2Limit)+64 {
+		body.WriteString(old)
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ncss", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "testdata/hycom.csv")
+	})
+	mux.HandleFunc("/data/stations/station_table.txt", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "testdata/station_table.txt")
+	})
+	mux.HandleFunc("/data/realtime2/WYCM6.txt", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(body.String()))
+	})
+	mux.HandleFunc("/data/realtime2/42040.txt", func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "missing", http.StatusNotFound)
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	out := t.TempDir()
+	aoi := BBox{West: -89.7, South: 29.95, East: -87.85, North: 30.52}
+	err := FetchSnapshot(context.Background(), srv.Client(), Endpoints{
+		HYCOM:           srv.URL + "/ncss",
+		StationTable:    srv.URL + "/data/stations/station_table.txt",
+		Realtime2Prefix: srv.URL + "/data/realtime2/",
+	}, aoi, out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.Open(filepath.Join(out, "buoys.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	b, err := DecodeBuoys(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(b.Stations) != 1 {
+		t.Fatalf("oversized realtime2 must still ingest: %+v", b.Stations)
+	}
+	want := time.Date(2026, 8, 25, 23, 48, 0, 0, time.UTC)
+	if b.Stations[0].ObsTime == nil || !b.Stations[0].ObsTime.Equal(want) {
+		t.Fatalf("truncated file must keep the newest row, got %v", b.Stations[0].ObsTime)
 	}
 }

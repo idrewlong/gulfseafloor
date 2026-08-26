@@ -11,9 +11,9 @@ import (
 	"time"
 )
 
-// StationMarginDeg is the extra padding applied to the Mississippi Sound AOI
-// when selecting NDBC stations.
-const StationMarginDeg = 0.5
+// StationMarginDeg is extra padding around the chart AOI when selecting NDBC
+// stations. Zero keeps glyphs on the terrain slab.
+const StationMarginDeg = 0
 
 const realtime2Limit = 256 * 1024
 
@@ -105,7 +105,8 @@ func ParseStationTable(r io.Reader, margin BBox) ([]TableRow, error) {
 }
 
 // ParseRealtime2 reads a standard meteorological realtime2 text file and
-// returns the last parseable data row. MM and empty cells are omitted.
+// returns the parseable data row with the latest obs time. NDBC files are
+// newest-first, so the last row is the oldest. MM and empty cells are omitted.
 func ParseRealtime2(id string, r io.Reader) (Station, error) {
 	data, err := io.ReadAll(io.LimitReader(r, realtime2Limit))
 	if err != nil {
@@ -114,7 +115,7 @@ func ParseRealtime2(id string, r io.Reader) (Station, error) {
 	if looksLikeHTML(data) {
 		return Station{}, fmt.Errorf("ocean: ndbc: realtime2: html payload")
 	}
-	var last *Station
+	var best *Station
 	sc := bufio.NewScanner(bytes.NewReader(data))
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())
@@ -125,16 +126,18 @@ func ParseRealtime2(id string, r io.Reader) (Station, error) {
 		if !ok {
 			continue
 		}
-		row := st
-		last = &row
+		if best == nil || st.ObsTime.After(*best.ObsTime) {
+			row := st
+			best = &row
+		}
 	}
 	if err := sc.Err(); err != nil {
 		return Station{}, fmt.Errorf("ocean: ndbc: realtime2: %w", err)
 	}
-	if last == nil {
+	if best == nil {
 		return Station{}, fmt.Errorf("ocean: ndbc: realtime2: no parseable data row")
 	}
-	return *last, nil
+	return *best, nil
 }
 
 // BuoysValidTime is the latest station ObsTime, or retrieved when none exist.

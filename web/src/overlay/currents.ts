@@ -3,14 +3,17 @@ import { AOI, ORIGIN, lonLatToLocal } from '../geo';
 import {
   FLOW_SCALE,
   PARTICLE_MAX_AGE,
+  TRAIL_LAG_SEC,
   advect,
   staticArrows,
   type VelocityGrid,
 } from './currentsField';
-import { makeTrailGeometry } from './currentsGpu';
+import { makePointGeometry, makeTrailGeometry } from './currentsGpu';
 import advectFrag from './shaders/advect.frag.glsl?raw';
 import trailVert from './shaders/trail.vert.glsl?raw';
 import trailFrag from './shaders/trail.frag.glsl?raw';
+import particleVert from './shaders/particle.vert.glsl?raw';
+import particleFrag from './shaders/particle.frag.glsl?raw';
 
 const STATE_W = 128;
 const STATE_H = 64;
@@ -23,7 +26,7 @@ void main() {
 }
 `;
 
-export { detectFloatOk, makeTrailGeometry } from './currentsGpu';
+export { detectFloatOk, makePointGeometry, makeTrailGeometry } from './currentsGpu';
 
 export type CurrentsHandle = {
   setEnabled(on: boolean): void;
@@ -44,8 +47,35 @@ type GpuSim = {
   trails: THREE.LineSegments;
   trailMat: THREE.ShaderMaterial;
   trailGeo: THREE.BufferGeometry;
+  points: THREE.Points;
+  pointMat: THREE.ShaderMaterial;
+  pointGeo: THREE.BufferGeometry;
   initialized: boolean;
 };
+
+function overlayStateUniforms(
+  grid: VelocityGrid,
+  velTex: THREE.DataTexture,
+  stateTex: THREE.Texture,
+  mPerDeg: { lon: number; lat: number },
+): Record<string, THREE.IUniform> {
+  return {
+    uVelTex: { value: velTex },
+    uStatePos: { value: stateTex },
+    uStateSize: { value: new THREE.Vector2(STATE_W, STATE_H) },
+    uVelSize: { value: new THREE.Vector2(grid.nx, grid.ny) },
+    uOriginLon: { value: ORIGIN.lon },
+    uOriginLat: { value: ORIGIN.lat },
+    uMPerDegLon: { value: mPerDeg.lon },
+    uMPerDegLat: { value: mPerDeg.lat },
+    uGridWest: { value: grid.bbox.west },
+    uGridSouth: { value: grid.bbox.south },
+    uGridEast: { value: grid.bbox.east },
+    uGridNorth: { value: grid.bbox.north },
+    uFlowScale: { value: FLOW_SCALE },
+    uTrailLag: { value: TRAIL_LAG_SEC },
+  };
+}
 
 function metresPerDegree(): { lon: number; lat: number } {
   const east = lonLatToLocal(ORIGIN.lon + 1, ORIGIN.lat);
@@ -74,8 +104,8 @@ function velocityTexture(grid: VelocityGrid): THREE.DataTexture {
   }
   const tex = new THREE.DataTexture(data, nx, ny, THREE.RGBAFormat, THREE.FloatType);
   tex.colorSpace = THREE.NoColorSpace;
-  tex.magFilter = THREE.LinearFilter;
-  tex.minFilter = THREE.LinearFilter;
+  tex.magFilter = THREE.NearestFilter;
+  tex.minFilter = THREE.NearestFilter;
   tex.generateMipmaps = false;
   // Packed south-to-north (iy=0 first). flipY false so WebGL v=0 is that first row.
   tex.flipY = false;
@@ -96,7 +126,6 @@ function makeStateRT(): THREE.WebGLRenderTarget {
     depthBuffer: false,
     stencilBuffer: false,
     generateMipmaps: false,
-    count: 2,
     colorSpace: THREE.NoColorSpace,
   });
   for (const tex of rt.textures) {
@@ -114,7 +143,7 @@ export function makeStaticArrows(grid: VelocityGrid): THREE.Group {
   const pts: number[] = [];
   for (const a of staticArrows(grid)) {
     const a0 = lonLatToLocal(a.lon, a.lat);
-    const next = advect(a.lon, a.lat, a.u, a.v, 0.2, FLOW_SCALE);
+    const next = advect(a.lon, a.lat, a.u, a.v, TRAIL_LAG_SEC, FLOW_SCALE);
     const a1 = lonLatToLocal(next.lon, next.lat);
     pts.push(a0.x, a0.y, LIFT_Z, a1.x, a1.y, LIFT_Z);
   }
@@ -123,8 +152,9 @@ export function makeStaticArrows(grid: VelocityGrid): THREE.Group {
   const mat = new THREE.LineBasicMaterial({
     color: TRAIL_CYAN,
     transparent: true,
-    opacity: 0.55,
-    depthTest: true,
+    opacity: 0.7,
+    depthTest: false,
+    depthWrite: false,
   });
   const lines = new THREE.LineSegments(geo, mat);
   lines.frustumCulled = false;
@@ -138,29 +168,15 @@ function makeGpu(grid: VelocityGrid): GpuSim {
   const velTex = velocityTexture(grid);
   const ping = makeStateRT();
   const pong = makeStateRT();
+  const stateTex = ping.texture;
   const simMat = new THREE.ShaderMaterial({
-    glslVersion: THREE.GLSL3,
     uniforms: {
-      uVelTex: { value: velTex },
-      uStatePos: { value: ping.textures[0] },
-      uStateLife: { value: ping.textures[1] },
-      uStateSize: { value: new THREE.Vector2(STATE_W, STATE_H) },
-      uVelSize: { value: new THREE.Vector2(grid.nx, grid.ny) },
-      uOriginLon: { value: ORIGIN.lon },
-      uOriginLat: { value: ORIGIN.lat },
-      uMPerDegLon: { value: mPerDeg.lon },
-      uMPerDegLat: { value: mPerDeg.lat },
+      ...overlayStateUniforms(grid, velTex, stateTex, mPerDeg),
       uAoiWest: { value: AOI.west },
       uAoiSouth: { value: AOI.south },
       uAoiEast: { value: AOI.east },
       uAoiNorth: { value: AOI.north },
-      uGridWest: { value: grid.bbox.west },
-      uGridSouth: { value: grid.bbox.south },
-      uGridEast: { value: grid.bbox.east },
-      uGridNorth: { value: grid.bbox.north },
       uDt: { value: 0 },
-      // Visual exaggeration so ~0.5 m/s shelf flow is readable; not a physical dt.
-      uFlowScale: { value: FLOW_SCALE },
       uMaxAge: { value: PARTICLE_MAX_AGE },
       uInit: { value: 1 },
     },
@@ -179,15 +195,11 @@ function makeGpu(grid: VelocityGrid): GpuSim {
 
   const trailGeo = makeTrailGeometry();
   const trailMat = new THREE.ShaderMaterial({
-    glslVersion: THREE.GLSL3,
-    uniforms: {
-      uStatePos: { value: ping.textures[0] },
-      uStateSize: { value: new THREE.Vector2(STATE_W, STATE_H) },
-    },
+    uniforms: overlayStateUniforms(grid, velTex, stateTex, mPerDeg),
     vertexShader: trailVert,
     fragmentShader: trailFrag,
     transparent: true,
-    depthTest: true,
+    depthTest: false,
     depthWrite: false,
     toneMapped: false,
   });
@@ -195,6 +207,25 @@ function makeGpu(grid: VelocityGrid): GpuSim {
   trails.name = 'currents-trails';
   trails.frustumCulled = false;
   trails.renderOrder = 4;
+
+  const pointGeo = makePointGeometry();
+  const pointMat = new THREE.ShaderMaterial({
+    uniforms: {
+      uStatePos: { value: stateTex },
+      uStateSize: { value: new THREE.Vector2(STATE_W, STATE_H) },
+      uPointSize: { value: 8 },
+    },
+    vertexShader: particleVert,
+    fragmentShader: particleFrag,
+    transparent: true,
+    depthTest: false,
+    depthWrite: false,
+    toneMapped: false,
+  });
+  const points = new THREE.Points(pointGeo, pointMat);
+  points.name = 'currents-points';
+  points.frustumCulled = false;
+  points.renderOrder = 5;
 
   return {
     velTex,
@@ -208,18 +239,24 @@ function makeGpu(grid: VelocityGrid): GpuSim {
     trails,
     trailMat,
     trailGeo,
+    points,
+    pointMat,
+    pointGeo,
     initialized: false,
   };
 }
 
 function disposeGpu(gpu: GpuSim): void {
   gpu.trails.onBeforeRender = (): void => {};
+  gpu.points.onBeforeRender = (): void => {};
   gpu.velTex.dispose();
   gpu.ping.dispose();
   gpu.pong.dispose();
   gpu.simMat.dispose();
   gpu.trailMat.dispose();
   gpu.trailGeo.dispose();
+  gpu.pointMat.dispose();
+  gpu.pointGeo.dispose();
   const quad = gpu.simScene.children[0];
   if (quad instanceof THREE.Mesh) {
     quad.geometry.dispose();
@@ -228,16 +265,18 @@ function disposeGpu(gpu: GpuSim): void {
 
 function disposeObject3D(root: THREE.Object3D): void {
   root.traverse((obj) => {
-    if (obj instanceof THREE.Mesh || obj instanceof THREE.Line || obj instanceof THREE.LineSegments) {
-      obj.geometry.dispose();
-      const mat = obj.material;
-      if (Array.isArray(mat)) {
-        for (const m of mat) {
-          m.dispose();
-        }
-      } else {
-        mat.dispose();
+    const mesh = obj as THREE.Mesh;
+    if (!mesh.geometry || mesh.material == null) {
+      return;
+    }
+    mesh.geometry.dispose();
+    const mat = mesh.material;
+    if (Array.isArray(mat)) {
+      for (const m of mat) {
+        m.dispose();
       }
+    } else {
+      mat.dispose();
     }
   });
 }
@@ -255,6 +294,7 @@ export function mountCurrents(
   const gpu = opts.floatOk ? makeGpu(grid) : null;
   if (gpu) {
     group.add(gpu.trails);
+    group.add(gpu.points);
   }
 
   let enabled = true;
@@ -264,9 +304,10 @@ export function mountCurrents(
   const useStatic = (): boolean => reducedMotion || !opts.floatOk || gpu == null;
 
   const syncVisibility = (): void => {
-    arrows.visible = useStatic();
+    arrows.visible = true;
     if (gpu) {
       gpu.trails.visible = !useStatic();
+      gpu.points.visible = !useStatic();
     }
   };
   syncVisibility();
@@ -275,8 +316,7 @@ export function mountCurrents(
     if (!gpu) {
       return;
     }
-    gpu.simMat.uniforms.uStatePos.value = gpu.read.textures[0];
-    gpu.simMat.uniforms.uStateLife.value = gpu.read.textures[1];
+    gpu.simMat.uniforms.uStatePos.value = gpu.read.texture;
     gpu.simMat.uniforms.uDt.value = dtSec;
     gpu.simMat.uniforms.uInit.value = init ? 1 : 0;
 
@@ -291,12 +331,14 @@ export function mountCurrents(
     const tmp = gpu.read;
     gpu.read = gpu.write;
     gpu.write = tmp;
-    gpu.trailMat.uniforms.uStatePos.value = gpu.read.textures[0];
+    gpu.trailMat.uniforms.uStatePos.value = gpu.read.texture;
+    gpu.pointMat.uniforms.uStatePos.value = gpu.read.texture;
     gpu.initialized = true;
   };
 
   if (gpu) {
-    gpu.trails.onBeforeRender = (renderer) => {
+    const kickSim = (renderer: THREE.WebGLRenderer): void => {
+      gpu.pointMat.uniforms.uPointSize.value = 8 * renderer.getPixelRatio();
       if (!enabled || !group.visible || useStatic()) {
         pendingDt = 0;
         return;
@@ -308,6 +350,8 @@ export function mountCurrents(
       }
       pendingDt = 0;
     };
+    gpu.trails.onBeforeRender = kickSim;
+    gpu.points.onBeforeRender = kickSim;
   }
 
   scene.add(group);

@@ -6,6 +6,30 @@ const METRES_PER_DEG_LAT = 111_320;
 export const PARTICLE_COUNT = 8192;
 export const FLOW_SCALE = 2500;
 export const PARTICLE_MAX_AGE = 8;
+/** Seconds the line tail lags the head so streaks are kilometres, not one frame. */
+export const TRAIL_LAG_SEC = 4;
+
+export function trailLagMix(dtSec: number, lagSec: number): number {
+  if (lagSec <= 0) {
+    return 1;
+  }
+  return 1 - Math.exp(-Math.max(dtSec, 0) / lagSec);
+}
+
+/** World-space length of a trail that lags `lagSec` behind the particle. */
+export function laggedTrailMetres(speedMs: number, flowScale: number, lagSec: number): number {
+  return Math.abs(speedMs) * flowScale * lagSec;
+}
+
+/** Local-metre tail offset (east, north) for a streak along velocity. */
+export function trailTailOffset(
+  u: number,
+  v: number,
+  lagSec: number,
+  flowScale: number,
+): { x: number; y: number } {
+  return { x: u * lagSec * flowScale, y: v * lagSec * flowScale };
+}
 
 export type VelocityGrid = {
   nx: number;

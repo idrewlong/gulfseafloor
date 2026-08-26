@@ -15,13 +15,15 @@ import type { SharedTerrainUniforms } from './terrain/TerrainTile';
 import {
   CAMERA_MAX_POLAR,
   CAMERA_MIN_POLAR,
+  DEFAULT_DEPTH_MAX,
+  DEFAULT_DEPTH_MIN,
   DEFAULT_EXAGGERATION,
 } from './viewerConfig';
 import { addCoastOverlay } from './overlay/coast';
 import { detectFloatOk, mountCurrents, type CurrentsHandle } from './overlay/currents';
 import { velocityGridFromJson } from './overlay/currentsField';
-import { mountBuoys, parseBuoysJson, type BuoysHandle } from './overlay/buoys';
-import { availabilityFromHttp, defaultOn, oceanCaption, unavailableOceanResponse } from './overlay/oceanUi';
+import { mountBuoys, parseBuoysJson, stationsOnChart, type BuoysHandle } from './overlay/buoys';
+import { availabilityFromHttp, defaultOn, oceanCaption, oceanChromeHidden, unavailableOceanResponse } from './overlay/oceanUi';
 import {
   mountAbout,
   mountControls,
@@ -36,10 +38,6 @@ import { mountLegend } from './ui/legend';
 import { mountLocator } from './ui/locator';
 import { mountGlobe, type GlobeHandle } from './globe/mountGlobe';
 
-const DEFAULT_DEPTH_MIN = -30;
-const DEFAULT_DEPTH_MAX = 4;
-const DEPTH_LIMIT_MIN = -80;
-const DEPTH_LIMIT_MAX = 12;
 const DEFAULT_IMAGERY_OPACITY = 0.88;
 const DEFAULT_CONTOUR_INTERVAL = 10;
 
@@ -161,7 +159,7 @@ function poseCamera(
 ): void {
   const origin = lonLatToLocal(ORIGIN.lon, ORIGIN.lat);
   const target = new THREE.Vector3(origin.x, origin.y, 0);
-  const end = new THREE.Vector3(origin.x + 8_000, origin.y - 115_000, 48_000);
+  const end = new THREE.Vector3(origin.x + 12_000, origin.y - 175_000, 78_000);
 
   controls.target.copy(target);
   if (!animate) {
@@ -171,7 +169,7 @@ function poseCamera(
     return;
   }
 
-  const start = new THREE.Vector3(origin.x + 4_000, origin.y - 55_000, 72_000);
+  const start = new THREE.Vector3(origin.x + 6_000, origin.y - 80_000, 110_000);
   camera.position.copy(start);
   camera.lookAt(target);
 
@@ -235,6 +233,7 @@ async function start(): Promise<void> {
   const locatorRoot = requireEl<HTMLElement>('locator');
   const labelsRoot = requireEl<HTMLElement>('geo-labels');
   const buoyMarks = requireEl<HTMLElement>('buoy-marks');
+  const oceanFieldset = requireEl<HTMLFieldSetElement>('ocean');
   const captionEl = requireEl<HTMLElement>('caption');
   const creditsEl = requireEl<HTMLElement>('credits');
   const modeField = requireEl<HTMLFieldSetElement>('view-mode');
@@ -345,6 +344,7 @@ async function start(): Promise<void> {
     bathymetryRunning = next === 'bathymetry';
     app.classList.toggle('is-globe', next === 'globe');
     app.classList.toggle('is-bathymetry', next === 'bathymetry');
+    oceanFieldset.hidden = oceanChromeHidden(next);
     const globeRadio = modeField.querySelector<HTMLInputElement>('input[name="view-mode"][value="globe"]');
     const bathyRadio = modeField.querySelector<HTMLInputElement>('input[name="view-mode"][value="bathymetry"]');
     if (globeRadio && bathyRadio) {
@@ -388,13 +388,8 @@ async function start(): Promise<void> {
 
   mountLegend({
     root: legendRoot,
-    minLimit: DEPTH_LIMIT_MIN,
-    maxLimit: DEPTH_LIMIT_MAX,
-    initial: { min: DEFAULT_DEPTH_MIN, max: DEFAULT_DEPTH_MAX },
-    onChange: (w) => {
-      shared.uDepthMin.value = w.min;
-      shared.uDepthMax.value = w.max;
-    },
+    min: DEFAULT_DEPTH_MIN,
+    max: DEFAULT_DEPTH_MAX,
   });
 
   let exaggeration = DEFAULT_EXAGGERATION;
@@ -535,7 +530,7 @@ async function start(): Promise<void> {
       currentsHandle.setEnabled(viewMode === 'bathymetry' && layersOn.currents);
     }
     if (buoysParsed) {
-      buoysHandle = mountBuoys(buoyMarks, buoysParsed.stations);
+      buoysHandle = mountBuoys(buoyMarks, stationsOnChart(buoysParsed.stations, aoi), aoi);
       const showBuoys = viewMode === 'bathymetry' && layersOn.buoys;
       buoysHandle.setEnabled(showBuoys);
       buoyMarks.hidden = !showBuoys;
@@ -599,14 +594,13 @@ async function start(): Promise<void> {
     fitProjection(camera, controls);
     lod.update(camera, canvas.clientHeight);
 
+    camera.updateMatrixWorld();
     const w = canvas.clientWidth;
     const h = canvas.clientHeight;
-    const project = screenProject(camera, exaggeration, w, h, overlayScratch);
-    const buoyCands =
-      oceanOn.buoys && buoysHandle ? buoysHandle.candidates(project, w, h) : [];
-    labels.update(camera, exaggeration, w, h, buoyCands);
+    labels.update(camera, exaggeration, w, h);
     if (oceanOn.buoys && buoysHandle) {
-      buoysHandle.layout(project, w, h, labels.placeCandidates());
+      const buoyProject = screenProject(camera, exaggeration, w, h, overlayScratch, 18);
+      buoysHandle.layout(buoyProject, w, h, labels.placeCandidates());
     }
 
     currentsHandle?.tick(clock.getDelta());

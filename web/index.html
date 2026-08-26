@@ -65,7 +65,7 @@
         </div>
       </header>
 
-      <aside id="legend" class="legend" aria-label="Hypsometric depth window"></aside>
+      <aside id="legend" class="legend" aria-label="Hypsometric depth scale"></aside>
 
       <div id="readout" class="readout" aria-live="polite">
         <span class="readout-ll">—</span>
@@ -187,16 +187,18 @@
             as unaltered NOAA bathymetry. The coastline and island outlines are
             © OpenStreetMap contributors (ODbL).
           </p>
-          <h3>Ocean overlay</h3>
-          <p>
-            On bathymetry, a snapshot HYCOM surface-current field can be drawn as
-            particles. Motion is visually exaggerated and is not a time stepper.
-            NDBC stations appear as wind barbs. This viewer is
-            <strong>not an official NOAA product</strong>. Surface currents courtesy
-            of the HYCOM consortium
-            (<span id="hycom-dataset">dataset id when present</span>).
-            Buoy observations are NOAA NDBC open data.
-          </p>
+          <div class="ocean-about">
+            <h3>Ocean overlay</h3>
+            <p>
+              On bathymetry, a snapshot HYCOM surface-current field can be drawn as
+              particles. Motion is visually exaggerated and is not a time stepper.
+              NDBC stations appear as wind barbs. This viewer is
+              <strong>not an official NOAA product</strong>. Surface currents courtesy
+              of the HYCOM consortium
+              (<span id="hycom-dataset">dataset id when present</span>).
+              Buoy observations are NOAA NDBC open data.
+            </p>
+          </div>
           <h3>Two views</h3>
           <p>
             <strong>Globe</strong> is CesiumJS on a WGS84 ellipsoid: Esri imagery

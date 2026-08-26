@@ -2,7 +2,7 @@
 //
 //	tiler synth -out data/tiles -zmin 6 -zmax 14
 //
-// The synthetic surface is a Mississippi Sound stand-in so the
+// The synthetic surface is a Mississippi Bight stand-in so the
 // viewer runs with the network unplugged. Real NOAA rasters go through
 // scripts/build-tiles.sh (GDAL) when available.
 package main

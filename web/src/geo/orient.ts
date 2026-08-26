@@ -61,9 +61,10 @@ export const BARRIER_ISLANDS: readonly (readonly LonLat[])[] = (
 });
 
 export const PLACES: readonly Place[] = [
-  { name: 'Louisiana', lon: -89.62, lat: 30.42, elev: 6, kind: 'state' },
+  { name: 'Louisiana', lon: -89.85, lat: 30.35, elev: 6, kind: 'state' },
   { name: 'Mississippi', lon: -89.02, lat: 30.485, elev: 8, kind: 'state' },
-  { name: 'Alabama', lon: -88.16, lat: 30.46, elev: 6, kind: 'state' },
+  { name: 'Alabama', lon: -87.72, lat: 30.50, elev: 6, kind: 'state' },
+  { name: 'New Orleans', lon: -90.07, lat: 29.96, elev: 4, kind: 'city' },
   { name: 'Pearlington', lon: -89.603, lat: 30.247, elev: 3, kind: 'city', rank: 2 },
   { name: 'Waveland', lon: -89.377, lat: 30.293, elev: 3, kind: 'city', rank: 2 },
   { name: 'Bay St. Louis', lon: -89.33, lat: 30.31, elev: 3, kind: 'city' },
@@ -79,6 +80,9 @@ export const PLACES: readonly Place[] = [
   { name: 'Bayou La Batre', lon: -88.248, lat: 30.403, elev: 3, kind: 'city', rank: 2 },
   { name: 'Coden', lon: -88.239, lat: 30.383, elev: 2, kind: 'city', rank: 3 },
   { name: 'Fort Morgan', lon: -87.991, lat: 30.228, elev: 3, kind: 'city', rank: 2 },
+  { name: 'Gulf Shores', lon: -87.701, lat: 30.246, elev: 3, kind: 'city', rank: 2 },
+  { name: 'Orange Beach', lon: -87.57, lat: 30.33, elev: 3, kind: 'city' },
+  { name: 'Mobile', lon: -88.04, lat: 30.69, elev: 8, kind: 'city' },
   { name: 'Cat Island', lon: -89.12, lat: 30.232, elev: 2, kind: 'feature', rank: 1 },
   { name: 'West Ship Island', lon: -88.972, lat: 30.211, elev: 2, kind: 'feature', rank: 1 },
   { name: 'East Ship Island', lon: -88.885, lat: 30.238, elev: 2, kind: 'feature' },

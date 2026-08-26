@@ -137,7 +137,7 @@ is the unit you copy onto a disconnected machine. See
 calls. Seed tiles travel with the binary (local) or inside a Zarf tarball
 (cluster). The ocean overlay is the same: `GET /api/ocean/manifest`,
 `/api/ocean/currents`, and `/api/ocean/buoys` serve the last snapshot from
-`data/ocean/` (404 until `make ocean`). GDAL, SNS, S3, HYCOM, and NDBC
+`data/ocean/` (404 until `HYCOM_NCSS=https://ncss.hycom.org/thredds/ncss/grid/GLBy0.08/latest make ocean`). GDAL, SNS, S3, HYCOM, and NDBC
 exist only on ingest, which is not required to view already-built tiles.
 
 The renderer is three.js / WebGL2 on a planar Web Mercator quad, not a

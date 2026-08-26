@@ -35,10 +35,11 @@ export function screenProject(
   width: number,
   height: number,
   scratch: THREE.Vector3 = new THREE.Vector3(),
+  zLift = 60,
 ): ProjectFn {
   return (lon, lat, elev) => {
     const p = lonLatToLocal(lon, lat);
-    scratch.set(p.x, p.y, elev * exaggeration + 60);
+    scratch.set(p.x, p.y, elev * exaggeration + zLift);
     scratch.project(camera);
     if (scratch.z > 1) {
       return null;

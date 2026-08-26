@@ -24,14 +24,8 @@ in float vSkirt;
 
 out vec4 fragColor;
 
-float decodeTerrarium(vec3 rgb) {
-  return -10000.0 + ((rgb.r * 255.0 * 65536.0
-                    + rgb.g * 255.0 * 256.0
-                    + rgb.b * 255.0) * 0.1);
-}
-
 float sampleElev(vec2 uv) {
-  return decodeTerrarium(texture(uHeightTex, uv).rgb);
+  return texture(uHeightTex, uv).r;
 }
 
 float validElev(vec2 uv) {
@@ -44,6 +38,14 @@ float validElev(vec2 uv) {
 
 void main() {
   if (vElevation <= -9999.0) {
+    discard;
+  }
+
+  vec3 viewDir = normalize(cameraPosition - vWorldPos);
+  vec3 geoN = normalize(cross(dFdx(vWorldPos), dFdy(vWorldPos)));
+  // Skirt ring, plus steep faces only when the camera is edge-on to the
+  // slab. Unconditional steep-face discard would eat 50× bathymetry from above.
+  if (vSkirt > 0.0 || (abs(geoN.z) < 0.35 && viewDir.z < 0.25)) {
     discard;
   }
 
@@ -63,10 +65,8 @@ void main() {
     -(up - dn) * uExaggeration / dy,
     1.0
   ));
-  nrm = normalize(mix(vec3(0.0, 0.0, 1.0), nrm, mix(0.08, 1.0, land)));
 
   vec3 sun = normalize(uSunDir);
-  vec3 viewDir = normalize(cameraPosition - vWorldPos);
   float ndotl = dot(nrm, sun);
   float wrap = clamp(ndotl * 0.42 + 0.58, 0.0, 1.0);
   float lambert = clamp(ndotl, 0.0, 1.0);
@@ -107,14 +107,8 @@ void main() {
 
   if (uImageryOpacity > 0.001 && uHasImagery > 0.5) {
     vec3 img = texture(uImageryTex, vUv).rgb;
-    vec3 draped = pow(max(img, vec3(0.0)), vec3(0.95)) * (0.78 + 0.22 * shade);
-    float luma = dot(img, vec3(0.30, 0.59, 0.11));
-    float sat = max(img.r, max(img.g, img.b)) - min(img.r, min(img.g, img.b));
-    float warm = img.r * 0.6 + img.g * 0.4 - img.b;
-    float photoLand = smoothstep(0.20, 0.38, luma)
-                    * smoothstep(0.10, 0.22, sat)
-                    * smoothstep(0.02, 0.12, warm);
-    float amt = clamp(uImageryOpacity, 0.0, 1.0) * max(land, photoLand);
+    vec3 draped = img * (0.68 + 0.32 * shade);
+    float amt = clamp(uImageryOpacity, 0.0, 1.0);
     color = mix(color, draped, amt);
   }
 

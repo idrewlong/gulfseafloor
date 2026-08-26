@@ -13,6 +13,78 @@ func TestOutsideAOIIsNodata(t *testing.T) {
 	}
 }
 
+func TestNewOrleansIsLand(t *testing.T) {
+	if elev := Sample(-90.08, 29.96); elev < 0 {
+		t.Fatalf("New Orleans should be land, got %g", elev)
+	}
+}
+
+func TestOrangeBeachIsLand(t *testing.T) {
+	if elev := Sample(-87.57, 30.34); elev < 0 {
+		t.Fatalf("Orange Beach should be land, got %g", elev)
+	}
+}
+
+func TestLakePontchartrainIsWater(t *testing.T) {
+	elev := Sample(-90.12, 30.20)
+	if elev >= 0 {
+		t.Fatalf("Lake Pontchartrain should be water, got %g", elev)
+	}
+	if elev < -8 || elev > -1 {
+		t.Fatalf("Pontchartrain is a few metres deep, got %g", elev)
+	}
+}
+
+func TestPerdidoBayIsWater(t *testing.T) {
+	elev := Sample(-87.48, 30.34)
+	if elev >= 0 {
+		t.Fatalf("Perdido Bay should be water, got %g", elev)
+	}
+	if elev < -6 {
+		t.Fatalf("Perdido Bay should stay a shallow lagoon, got %g", elev)
+	}
+}
+
+func TestOrangeBeachGulfDeeperThanSound(t *testing.T) {
+	sound := Sample(-88.75, 30.30)
+	surf := Sample(-87.57, 30.26)
+	if surf >= 0 {
+		t.Fatalf("gulf off Orange Beach should be water, got %g", surf)
+	}
+	if surf >= sound {
+		t.Fatalf("Orange Beach gulf (%g) should be deeper than the Sound (%g)", surf, sound)
+	}
+	if surf < -20 {
+		t.Fatalf("surf zone off Orange Beach is inner shelf, not mid-gulf, got %g", surf)
+	}
+}
+
+func TestLakeBorgneIsLagoon(t *testing.T) {
+	elev := Sample(-89.55, 30.08)
+	if elev >= 0 {
+		t.Fatalf("Lake Borgne should be water, got %g", elev)
+	}
+	if elev < -8 {
+		t.Fatalf("Lake Borgne should stay a shallow lagoon, got %g", elev)
+	}
+}
+
+func TestChandeleurSoundIsLagoon(t *testing.T) {
+	elev := Sample(-89.00, 29.85)
+	if elev >= 0 {
+		t.Fatalf("Chandeleur Sound should be water, got %g", elev)
+	}
+	if elev < -12 {
+		t.Fatalf("Chandeleur Sound should not take open-gulf mid-shelf depth, got %g", elev)
+	}
+}
+
+func TestBuoy42354IsWater(t *testing.T) {
+	if elev := Sample(-88.643, 29.579); elev >= 0 {
+		t.Fatalf("42354 should be open water, got %g", elev)
+	}
+}
+
 func TestSoundShallowerThanOpenGulf(t *testing.T) {
 	sound := Sample(-88.75, 30.30)
 	gulf := Sample(-88.75, 30.02)
@@ -21,6 +93,22 @@ func TestSoundShallowerThanOpenGulf(t *testing.T) {
 	}
 	if gulf >= sound {
 		t.Fatalf("gulf south of the islands (%g) should be deeper than the sound (%g)", gulf, sound)
+	}
+}
+
+// The chart now runs south to 42354. The old 26 km / −40 m ramp finished just
+// south of the islands, so the added water was a flat plate.
+func TestOpenGulfDeepensToward42354(t *testing.T) {
+	near := Sample(-88.75, 30.02)
+	far := Sample(-88.643, 29.579)
+	if near >= 0 {
+		t.Fatalf("inner shelf south of the islands should be water, got %g", near)
+	}
+	if far >= near-20 {
+		t.Fatalf("42354 (%g) should sit well below the inner shelf (%g)", far, near)
+	}
+	if far > -60 || far < -90 {
+		t.Fatalf("42354 should be mid-shelf (~−80 m), got %g", far)
 	}
 }
 
@@ -140,7 +228,10 @@ func TestCoastalTownsAreLand(t *testing.T) {
 func TestCoastalPlainKeepsRisingToTheNorthEdge(t *testing.T) {
 	const lon = -89.05
 	prev := Sample(lon, 30.40)
-	for lat := 30.42; lat <= tiles.AOI.North+padDeg; lat += 0.02 {
+	// Stay on the Sound coastal plain. North of ~30.56 the expanded OSM
+	// waterline includes inland bayous, which are a real shore, not the
+	// synthetic closing edge this test is watching for.
+	for lat := 30.42; lat <= 30.56; lat += 0.02 {
 		got := Sample(lon, lat)
 		if got < prev-0.75 {
 			t.Fatalf("plain drops from %g m to %g m at lat %.2f — measuring to the ring's closing edge again", prev, got, lat)
