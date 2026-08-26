@@ -42,6 +42,9 @@ func main() {
 		ImageryEnabled:  os.Getenv("GULF_IMAGERY") != "0",
 		ImageryTemplate: os.Getenv("GULF_IMAGERY_URL"),
 		OceanDir:        env("GULF_OCEAN_DIR", "data/ocean"),
+		AircraftEnabled: os.Getenv("GULF_AIRCRAFT") != "0",
+		OpenSkyURL:      os.Getenv("GULF_OPENSKY_URL"),
+		AdsbLolURL:      os.Getenv("GULF_ADSBLOL_URL"),
 	}
 
 	srv := &http.Server{

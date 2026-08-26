@@ -3,6 +3,7 @@ package server
 import (
 	"io/fs"
 	"runtime"
+	"time"
 )
 
 // Config is the runtime knobs for the tile/API server.
@@ -25,6 +26,18 @@ type Config struct {
 	// OceanDir is the snapshot JSON root (currents.json, buoys.json, manifest.json).
 	// Default: data/ocean. Missing files are not a startup failure.
 	OceanDir string
+	// AircraftEnabled fetches and serves live ADS-B positions.
+	AircraftEnabled bool
+	// OpenSkyURL is the OpenSky states endpoint.
+	OpenSkyURL string
+	// AdsbLolURL is the adsb.lol API origin.
+	AdsbLolURL string
+	// AircraftNow supplies the cache clock. Default: time.Now().UTC.
+	AircraftNow func() time.Time
+	// AircraftCacheTTL controls how long a successful fetch stays fresh. Default: 10s.
+	AircraftCacheTTL time.Duration
+	// AircraftStaleFor controls how long a prior success may mask feed failure. Default: 60s.
+	AircraftStaleFor time.Duration
 }
 
 func (c Config) withDefaults() Config {
@@ -36,6 +49,15 @@ func (c Config) withDefaults() Config {
 	}
 	if c.OceanDir == "" {
 		c.OceanDir = "data/ocean"
+	}
+	if c.AircraftNow == nil {
+		c.AircraftNow = func() time.Time { return time.Now().UTC() }
+	}
+	if c.AircraftCacheTTL == 0 {
+		c.AircraftCacheTTL = 10 * time.Second
+	}
+	if c.AircraftStaleFor == 0 {
+		c.AircraftStaleFor = 60 * time.Second
 	}
 	if c.TileWorkers <= 0 {
 		c.TileWorkers = runtime.GOMAXPROCS(0)
