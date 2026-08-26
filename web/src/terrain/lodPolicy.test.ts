@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { canRefine, imageryLayerReady, isDisplayReady, satelliteVisible } from './lodPolicy.ts';
+import {
+  canRefine,
+  frustumLayerReady,
+  imageryLayerReady,
+  isDisplayReady,
+  satelliteVisible,
+  viewTargetZoom,
+} from './lodPolicy.ts';
 
 const heightReady = {
   state: 'ready' as const,
@@ -78,5 +85,38 @@ describe('satelliteVisible', () => {
       ),
       true,
     );
+  });
+});
+
+describe('viewTargetZoom', () => {
+  const base = {
+    fovDeg: 48,
+    viewportHeight: 900,
+    latitudeDeg: 30.14,
+    minZoom: 10,
+    maxZoom: 14,
+  };
+
+  it('picks a coarser zoom when the camera is farther', () => {
+    const near = viewTargetZoom({ ...base, distance: 80_000 });
+    const far = viewTargetZoom({ ...base, distance: 250_000 });
+    assert.ok(far <= near);
+    assert.ok(near >= 10 && near <= 14);
+  });
+
+  it('clamps to min and max zoom', () => {
+    assert.equal(viewTargetZoom({ ...base, distance: 1 }), 14);
+    assert.equal(viewTargetZoom({ ...base, distance: 1e9 }), 10);
+  });
+});
+
+describe('frustumLayerReady', () => {
+  it('is false until every in-view tile at that zoom has height', () => {
+    assert.equal(frustumLayerReady(['ready', 'loading']), false);
+    assert.equal(frustumLayerReady([]), false);
+  });
+
+  it('is true only when the whole in-view layer is ready, so zooms do not quilt', () => {
+    assert.equal(frustumLayerReady(['ready', 'ready']), true);
   });
 });

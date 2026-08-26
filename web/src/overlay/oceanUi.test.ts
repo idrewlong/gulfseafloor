@@ -7,7 +7,6 @@ import {
   defaultOn,
   formatValidZ,
   oceanCaption,
-  oceanChromeHidden,
   unavailableOceanResponse,
 } from './oceanUi.ts';
 
@@ -34,16 +33,10 @@ describe('availabilityFromHttp', () => {
 });
 
 describe('defaultOn', () => {
-  it('is on iff the layer is available', () => {
-    assert.deepEqual(defaultOn({ currents: true, buoys: false }), { currents: true, buoys: false });
-    assert.deepEqual(defaultOn({ currents: false, buoys: true }), { currents: false, buoys: true });
-  });
-});
-
-describe('oceanChromeHidden', () => {
-  it('hides the ocean fieldset on globe and shows it on bathymetry', () => {
-    assert.equal(oceanChromeHidden('globe'), true);
-    assert.equal(oceanChromeHidden('bathymetry'), false);
+  it('starts off even when both layers are available', () => {
+    assert.deepEqual(defaultOn({ currents: true, buoys: true }), { currents: false, buoys: false });
+    assert.deepEqual(defaultOn({ currents: true, buoys: false }), { currents: false, buoys: false });
+    assert.deepEqual(defaultOn({ currents: false, buoys: true }), { currents: false, buoys: false });
   });
 });
 

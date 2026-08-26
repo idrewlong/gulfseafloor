@@ -87,14 +87,11 @@ func TestSecurityHeadersPresent(t *testing.T) {
 			t.Fatalf("CSP must not wildcard connect-src: %s", csp)
 		}
 	}
-	if !strings.Contains(csp, "worker-src") || !strings.Contains(csp, "blob:") {
-		t.Fatalf("CSP must allow blob workers for Cesium: %s", csp)
-	}
-	if !strings.Contains(csp, "'unsafe-eval'") {
-		t.Fatalf("CSP must allow unsafe-eval for Cesium module load: %s", csp)
+	if strings.Contains(csp, "'unsafe-eval'") {
+		t.Fatalf("CSP must not allow unsafe-eval: %s", csp)
 	}
 	if !strings.Contains(csp, "connect-src 'self'") {
-		t.Fatalf("CSP must pin connect-src to self (no ion): %s", csp)
+		t.Fatalf("CSP must pin connect-src to self: %s", csp)
 	}
 }
 
@@ -246,7 +243,7 @@ func TestMissingStaticAssetIs404(t *testing.T) {
 		WebDir:  web,
 	})
 	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/cesium/Workers/not-a-worker.js", nil))
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/assets/missing-chunk.js", nil))
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("missing worker: status %d body %q", rec.Code, rec.Body.String())
 	}

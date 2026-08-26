@@ -27,14 +27,13 @@ import { mountAircraft, parseAircraftJson, type AircraftHandle } from './overlay
 import {
   aircraftAvailable,
   aircraftCaption,
-  aircraftChromeHidden,
   aircraftPollIntervalMs,
   deadReckon,
   shouldPollAircraft,
   shouldReprobeAircraft,
   type Aircraft,
 } from './overlay/aircraftUi';
-import { availabilityFromHttp, defaultOn, oceanCaption, oceanChromeHidden, unavailableOceanResponse } from './overlay/oceanUi';
+import { availabilityFromHttp, defaultOn, oceanCaption, unavailableOceanResponse } from './overlay/oceanUi';
 import {
   mountAbout,
   mountControls,
@@ -47,9 +46,7 @@ import {
 import { mountLabels, screenProject } from './ui/labels';
 import { mountLegend } from './ui/legend';
 import { mountLocator } from './ui/locator';
-import { mountGlobe, type GlobeHandle } from './globe/mountGlobe';
 
-const DEFAULT_IMAGERY_OPACITY = 0.88;
 const DEFAULT_CONTOUR_INTERVAL = 10;
 
 type ManifestRegion = {
@@ -230,8 +227,6 @@ function clampLookAt(
 
 async function start(): Promise<void> {
   const canvas = requireEl<HTMLCanvasElement>('terrain');
-  const globeRoot = requireEl<HTMLElement>('cesium');
-  const app = requireEl<HTMLElement>('app');
   const statusEl = requireEl<HTMLElement>('status');
   const readoutEl = requireEl<HTMLElement>('readout');
   const regionEl = requireEl<HTMLElement>('region-line');
@@ -245,11 +240,7 @@ async function start(): Promise<void> {
   const labelsRoot = requireEl<HTMLElement>('geo-labels');
   const buoyMarks = requireEl<HTMLElement>('buoy-marks');
   const aircraftMarks = requireEl<HTMLElement>('aircraft-marks');
-  const oceanFieldset = requireEl<HTMLFieldSetElement>('ocean');
-  const aircraftFieldset = requireEl<HTMLFieldSetElement>('aircraft');
   const captionEl = requireEl<HTMLElement>('caption');
-  const creditsEl = requireEl<HTMLElement>('credits');
-  const modeField = requireEl<HTMLFieldSetElement>('view-mode');
 
   const reduced = prefersReducedMotion();
   const manifest = await fetchManifest();
@@ -268,13 +259,6 @@ async function start(): Promise<void> {
   if (manifest?.tiles === false || manifest?.tileCount === 0) {
     setStatus(statusEl, 'No tiles on disk — run `make tiles`', true);
   }
-
-  type ViewMode = 'globe' | 'bathymetry';
-  let viewMode: ViewMode = 'bathymetry';
-  let wantMode: ViewMode = 'bathymetry';
-  let bathymetryRunning = true;
-  let globe: GlobeHandle | null = null;
-  let globeStarting = false;
 
   const lut = createHypsometricLUT();
   const sunDir = new THREE.Vector3();
@@ -378,13 +362,13 @@ async function start(): Promise<void> {
   };
 
   const aircraftPollOpts = (): {
-    mode: ViewMode;
+    mode: 'globe' | 'bathymetry';
     layerOn: boolean;
     documentHidden: boolean;
     available: boolean;
     primed: boolean;
   } => ({
-    mode: viewMode,
+    mode: 'bathymetry',
     layerOn: aircraftOn,
     documentHidden: document.hidden,
     available: aircraftAvailableStatus,
@@ -437,7 +421,7 @@ async function start(): Promise<void> {
       aircraftFetchedAt = parsed.fetchedAt;
       aircraftReport = { t: performance.now(), rows: parsed.aircraft };
       aircraftHandle?.setAircraft(parsed.aircraft);
-      const show = viewMode === 'bathymetry' && aircraftOn;
+      const show = aircraftOn;
       aircraftHandle?.setEnabled(show);
       aircraftMarks.hidden = !show;
       setCaption(exaggeration);
@@ -461,54 +445,7 @@ async function start(): Promise<void> {
   };
   document.addEventListener('visibilitychange', restartAircraftPoll);
 
-  const setMode = (next: ViewMode): void => {
-    viewMode = next;
-    bathymetryRunning = next === 'bathymetry';
-    app.classList.toggle('is-globe', next === 'globe');
-    app.classList.toggle('is-bathymetry', next === 'bathymetry');
-    oceanFieldset.hidden = oceanChromeHidden(next);
-    aircraftFieldset.hidden = aircraftChromeHidden(next);
-    const globeRadio = modeField.querySelector<HTMLInputElement>('input[name="view-mode"][value="globe"]');
-    const bathyRadio = modeField.querySelector<HTMLInputElement>('input[name="view-mode"][value="bathymetry"]');
-    if (globeRadio && bathyRadio) {
-      globeRadio.checked = next === 'globe';
-      bathyRadio.checked = next === 'bathymetry';
-    }
-    if (next === 'globe') {
-      globe?.setActive(true);
-      globe?.resize();
-      currentsHandle?.setEnabled(false);
-      buoyMarks.hidden = true;
-      buoysHandle?.setEnabled(false);
-      aircraftMarks.hidden = true;
-      aircraftHandle?.setEnabled(false);
-    } else {
-      globe?.setActive(false);
-      setReadout(readoutEl, null);
-      currentsHandle?.setEnabled(oceanOn.currents);
-      if (buoysHandle) {
-        buoyMarks.hidden = !oceanOn.buoys;
-        buoysHandle.setEnabled(oceanOn.buoys);
-      } else {
-        buoyMarks.hidden = true;
-      }
-      if (aircraftHandle) {
-        aircraftMarks.hidden = !aircraftOn;
-        aircraftHandle.setEnabled(aircraftOn);
-      } else {
-        aircraftMarks.hidden = true;
-      }
-    }
-    creditsEl.hidden = next !== 'globe' || Number(form.querySelector<HTMLInputElement>('input[name="imagery"]:checked')?.value) <= 0;
-    restartAircraftPoll();
-  };
-  setMode(viewMode);
-
   const setCaption = (exag: number): void => {
-    if (viewMode === 'globe') {
-      captionEl.textContent = `Globe · Mississippi Sound · Cesium · ${exag}× vertical`;
-      return;
-    }
     const base = `Looking north · Mississippi Sound · synthetic depths · ${exag}× vertical`;
     const ocean = oceanCaption(
       oceanOn.currents ? currentsValid : null,
@@ -540,7 +477,6 @@ async function start(): Promise<void> {
       contourInterval: DEFAULT_CONTOUR_INTERVAL,
       sunAzimuth: 315,
       sunAltitude: 38,
-      imageryOpacity: DEFAULT_IMAGERY_OPACITY,
       currents: oceanOn.currents,
       buoys: oceanOn.buoys,
       aircraft: false,
@@ -551,23 +487,17 @@ async function start(): Promise<void> {
       shared.uContourInterval.value = state.contourInterval;
       lod.setImageryOpacity(0);
       applySun(sunDir, state.sunAzimuth, state.sunAltitude);
-      globe?.setExaggeration(state.exaggeration);
-      globe?.setImageryOn(state.imageryOpacity > 0);
-      globe?.setSun(state.sunAzimuth, state.sunAltitude);
-      creditsEl.hidden = viewMode !== 'globe' || state.imageryOpacity <= 0;
       oceanOn = { currents: state.currents, buoys: state.buoys };
       const aircraftWasOn = aircraftOn;
       aircraftOn = state.aircraft;
-      if (viewMode === 'bathymetry') {
-        currentsHandle?.setEnabled(state.currents);
-        if (buoysHandle) {
-          buoyMarks.hidden = !state.buoys;
-          buoysHandle.setEnabled(state.buoys);
-        }
-        if (aircraftHandle) {
-          aircraftMarks.hidden = !state.aircraft;
-          aircraftHandle.setEnabled(state.aircraft);
-        }
+      currentsHandle?.setEnabled(state.currents);
+      if (buoysHandle) {
+        buoyMarks.hidden = !state.buoys;
+        buoysHandle.setEnabled(state.buoys);
+      }
+      if (aircraftHandle) {
+        aircraftMarks.hidden = !state.aircraft;
+        aircraftHandle.setEnabled(state.aircraft);
       }
       if (aircraftWasOn !== aircraftOn) {
         restartAircraftPoll();
@@ -593,69 +523,6 @@ async function start(): Promise<void> {
       setStatus(statusEl, null);
     }
   };
-
-  const ensureGlobe = async (): Promise<boolean> => {
-    if (globe) {
-      return true;
-    }
-    if (globeStarting) {
-      return false;
-    }
-    globeStarting = true;
-    setStatus(statusEl, 'Loading globe…', false);
-    try {
-      globe = await mountGlobe(globeRoot, {
-        aoi,
-        minZoom,
-        maxZoom,
-        dataVersion: manifest?.dataVersion,
-        exaggeration,
-        imageryOn: Number(form.querySelector<HTMLInputElement>('input[name="imagery"]:checked')?.value) > 0,
-        sunAzimuth: Number(form.querySelector<HTMLInputElement>('#sun-azimuth')?.value) || 315,
-        sunAltitude: Number(form.querySelector<HTMLInputElement>('#sun-altitude')?.value) || 38,
-        onPick: (sample) => {
-          if (viewMode === 'globe') {
-            setReadout(readoutEl, sample);
-          }
-        },
-      });
-      globe.setActive(viewMode === 'globe');
-      setStatus(statusEl, null);
-      return true;
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Globe failed to start';
-      setStatus(statusEl, msg, true);
-      return false;
-    } finally {
-      globeStarting = false;
-    }
-  };
-
-  modeField.addEventListener('change', () => {
-    const checked = modeField.querySelector<HTMLInputElement>('input[name="view-mode"]:checked');
-    wantMode = checked?.value === 'globe' ? 'globe' : 'bathymetry';
-    void (async () => {
-      if (wantMode === 'bathymetry') {
-        await ensureBathymetry();
-        if (wantMode === 'bathymetry') {
-          setMode('bathymetry');
-          setCaption(exaggeration);
-        }
-        return;
-      }
-      const ok = await ensureGlobe();
-      if (wantMode !== 'globe') {
-        return;
-      }
-      if (!ok) {
-        setMode('bathymetry');
-        setCaption(exaggeration);
-        return;
-      }
-      setMode('globe');
-      setCaption(exaggeration);
-    })();
-  });
 
   void (async () => {
     const [currentsRes, buoysRes] = await oceanFetches;
@@ -685,13 +552,12 @@ async function start(): Promise<void> {
 
     if (grid) {
       currentsHandle = mountCurrents(scene, grid, { reducedMotion: reduced, floatOk });
-      currentsHandle.setEnabled(viewMode === 'bathymetry' && layersOn.currents);
+      currentsHandle.setEnabled(layersOn.currents);
     }
     if (buoysParsed) {
       buoysHandle = mountBuoys(buoyMarks, stationsOnChart(buoysParsed.stations, aoi), aoi);
-      const showBuoys = viewMode === 'bathymetry' && layersOn.buoys;
-      buoysHandle.setEnabled(showBuoys);
-      buoyMarks.hidden = !showBuoys;
+      buoysHandle.setEnabled(layersOn.buoys);
+      buoyMarks.hidden = !layersOn.buoys;
     } else {
       buoyMarks.hidden = true;
     }
@@ -735,7 +601,6 @@ async function start(): Promise<void> {
     renderer.setSize(w, h, false);
     camera.aspect = w / Math.max(1, h);
     camera.updateProjectionMatrix();
-    globe?.resize();
   };
   window.addEventListener('resize', onResize);
   onResize();
@@ -744,10 +609,6 @@ async function start(): Promise<void> {
   const overlayScratch = new THREE.Vector3();
   const tick = (): void => {
     requestAnimationFrame(tick);
-    if (!bathymetryRunning) {
-      clock.getDelta();
-      return;
-    }
     camera.up.set(0, 0, 1);
     controls.update();
     clampLookAt(camera, controls, aoi);

@@ -11,6 +11,7 @@ ZMIN ?= 6
 ZMAX ?= 14
 
 tiles:
+	@echo "tile synth z$(ZMIN)–$(ZMAX) → $(DATA_DIR)  (often ~20 min; live ETA on stderr)"
 	go run ./cmd/tiler synth -out $(DATA_DIR) -zmin $(ZMIN) -zmax $(ZMAX)
 
 web:
@@ -19,7 +20,9 @@ web:
 server:
 	go build -trimpath -ldflags="-s -w" -o $(BIN) ./cmd/server
 
-run: tiles web server
+# Reuse data/tiles when present. `make tiles` still rebuilds the pyramid.
+run: web server
+	@if [ ! -d "$(DATA_DIR)/6" ]; then $(MAKE) tiles; fi
 	./$(BIN)
 
 tidy:

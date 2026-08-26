@@ -2,18 +2,15 @@ package server
 
 import "net/http"
 
-// Production CSP: same-origin scripts/styles/wasm/workers/img. No wildcard connect-src.
+// Production CSP: same-origin scripts/styles/workers/img. No wildcard connect-src.
 // Vite HMR is not in this policy — serve the built SPA, not the dev server.
-// 'unsafe-eval' is required by CesiumJS (it evals worker shims at module load).
-// wasm-unsafe-eval alone is not enough; without unsafe-eval the SPA never starts.
 const contentSecurityPolicy = "default-src 'self'; " +
-	"script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval' blob:; " +
+	"script-src 'self' 'wasm-unsafe-eval'; " +
 	"style-src 'self' 'unsafe-inline'; " +
 	"img-src 'self' data: blob:; " +
 	"font-src 'self'; " +
 	"connect-src 'self'; " +
-	"worker-src 'self' blob:; " +
-	"child-src 'self' blob:; " +
+	"worker-src 'self'; " +
 	"object-src 'none'; " +
 	"base-uri 'self'; " +
 	"form-action 'self'; " +

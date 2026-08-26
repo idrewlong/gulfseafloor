@@ -4,13 +4,6 @@ export const BUOY_RANK = 10;
 
 export type LayerAvailability = { currents: boolean; buoys: boolean };
 
-export type ViewerMode = 'globe' | 'bathymetry';
-
-/** Ocean controls and glyphs belong on the planar chart only. */
-export function oceanChromeHidden(mode: ViewerMode): boolean {
-  return mode === 'globe';
-}
-
 export function availabilityFromHttp(currentsStatus: number, buoysStatus: number): LayerAvailability {
   return {
     currents: currentsStatus === 200,
@@ -18,8 +11,8 @@ export function availabilityFromHttp(currentsStatus: number, buoysStatus: number
   };
 }
 
-export function defaultOn(avail: LayerAvailability): { currents: boolean; buoys: boolean } {
-  return { currents: avail.currents, buoys: avail.buoys };
+export function defaultOn(_avail: LayerAvailability): { currents: boolean; buoys: boolean } {
+  return { currents: false, buoys: false };
 }
 
 /** Same as a missing snapshot. `Response` status 0 is invalid and throws. */

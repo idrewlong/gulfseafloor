@@ -30,13 +30,13 @@ export function unlitBaseColor(elev: number, depthMin = -80): [number, number, n
   beach = mix3(beach, dune, smoothstep(0.6, 2.0, elev));
   const ground = mix3(beach, scrub, smoothstep(1.5, 3.3, elev));
 
-  const gulf = smoothstep(5.0, Math.max(12.0, -depthMin * 0.45), depth);
+  const gulf = smoothstep(2.0, Math.max(12.0, -depthMin * 0.45), depth);
   const scatter = mix3(
     mix3([0.42, 0.62, 0.58], [0.2, 0.4, 0.42], smoothstep(1.0, 8.0, depth)),
     [0.12, 0.3, 0.4],
     gulf,
   );
-  const absorb = 1 - Math.exp(-mix(0.28, 0.1, gulf) * depth);
+  const absorb = 1 - Math.exp(-mix(0.5, 0.1, gulf) * depth);
   let water = mix3([0.62, 0.58, 0.42], scatter, absorb);
   const foam = (1 - land) * (1 - smoothstep(-0.45, 0.12, elev));
   water = mix3(water, [0.88, 0.91, 0.9], foam * 0.22);

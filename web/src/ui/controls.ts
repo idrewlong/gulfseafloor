@@ -3,7 +3,6 @@ export type ViewerControls = {
   contourInterval: number;
   sunAzimuth: number;
   sunAltitude: number;
-  imageryOpacity: number;
   currents: boolean;
   buoys: boolean;
   aircraft: boolean;
@@ -55,11 +54,10 @@ export function mountControls(
   const azimuthOut = form.querySelector<HTMLOutputElement>('#sun-azimuth-out');
   const altitude = form.querySelector<HTMLInputElement>('#sun-altitude');
   const altitudeOut = form.querySelector<HTMLOutputElement>('#sun-altitude-out');
-  const imagery = form.querySelector<HTMLFieldSetElement>('#imagery');
   const ocean = form.querySelector<HTMLFieldSetElement>('#ocean');
   const aircraft = form.querySelector<HTMLFieldSetElement>('#aircraft');
 
-  if (!exaggeration || !exaggerationOut || !contour || !azimuth || !azimuthOut || !altitude || !altitudeOut || !imagery || !ocean || !aircraft) {
+  if (!exaggeration || !exaggerationOut || !contour || !azimuth || !azimuthOut || !altitude || !altitudeOut || !ocean || !aircraft) {
     throw new Error('control markup is incomplete');
   }
 
@@ -75,12 +73,6 @@ export function mountControls(
   );
   if (contourInput) {
     contourInput.checked = true;
-  }
-  const imageryInput = form.querySelector<HTMLInputElement>(
-    `input[name="imagery"][value="${initial.imageryOpacity}"]`,
-  );
-  if (imageryInput) {
-    imageryInput.checked = true;
   }
   const currentsInput = form.querySelector<HTMLInputElement>(
     `input[name="currents"][value="${initial.currents ? '1' : '0'}"]`,
@@ -103,7 +95,6 @@ export function mountControls(
 
   const read = (): ViewerControls => {
     const checked = form.querySelector<HTMLInputElement>('input[name="contour"]:checked');
-    const img = form.querySelector<HTMLInputElement>('input[name="imagery"]:checked');
     const currents = form.querySelector<HTMLInputElement>('input[name="currents"]:checked');
     const buoys = form.querySelector<HTMLInputElement>('input[name="buoys"]:checked');
     const aircraftChoice = form.querySelector<HTMLInputElement>('input[name="aircraft"]:checked');
@@ -112,7 +103,6 @@ export function mountControls(
       contourInterval: Number(checked?.value ?? 0),
       sunAzimuth: Number(azimuth.value),
       sunAltitude: Number(altitude.value),
-      imageryOpacity: Number(img?.value ?? 0),
       currents: currents?.value === '1',
       buoys: buoys?.value === '1',
       aircraft: aircraftChoice?.value === '1',

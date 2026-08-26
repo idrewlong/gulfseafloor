@@ -2,7 +2,6 @@ import * as THREE from 'three';
 import {
   AOI,
   bboxContains,
-  childrenOf,
   covering,
   intersectBBox,
   localToLonLat,
@@ -13,7 +12,7 @@ import {
   type TileCoord,
 } from '../geo';
 import { marchHeightfield } from './pick';
-import { canRefine, satelliteVisible, type DisplayQuery } from './lodPolicy';
+import { frustumLayerReady, satelliteVisible, viewTargetZoom } from './lodPolicy';
 import { TerrainTile, type SharedTerrainUniforms } from './TerrainTile';
 
 const MAX_INFLIGHT = 16;
@@ -32,9 +31,6 @@ const BASE_ZOOM = 10;
  * tiles. Least-recently-wanted tiles are evicted past this.
  */
 const TILE_BUDGET = 180;
-
-const TILE_PX = 256;
-const EQUATOR_M = 40_075_016.686;
 
 export type LODConfig = {
   scene: THREE.Scene;
@@ -129,18 +125,18 @@ async function fetchTileBitmap(t: TileCoord, version: string): Promise<ImageBitm
 /**
  * View-dependent tile pyramid.
  *
- * Zooms through BASE_ZOOM are loaded once and pinned. Above that, the zoom a
- * tile is refined to comes from its distance to the camera — enough tiles to
- * put roughly one texel on one screen pixel — and only tiles inside the frustum
- * refine at all. Selection then walks down from the base layer and draws the
- * finest ready tile covering each patch of ground, so a partly-loaded region
- * falls back to its parent instead of opening a hole.
+ * Zooms through BASE_ZOOM are loaded once and pinned. Above that, the whole
+ * frustum uses one zoom — the zoom whose texel is about one screen pixel at
+ * the camera's distance to the AOI centre — so east/west tiles do not quilt.
+ * A finer zoom is drawn only when every in-view tile at that zoom is ready.
  */
 export class QuadtreeLOD {
   readonly group = new THREE.Group();
 
   private readonly shared: SharedTerrainUniforms;
   private readonly aoi: BBox;
+  private readonly aoiCentre: THREE.Vector3;
+  private readonly midLat: number;
   private readonly minZoom: number;
   private readonly maxZoom: number;
   private readonly baseZoom: number;
@@ -167,6 +163,9 @@ export class QuadtreeLOD {
   constructor(cfg: LODConfig) {
     this.shared = cfg.shared;
     this.aoi = cfg.aoi ?? AOI;
+    const origin = lonLatToLocal((this.aoi.west + this.aoi.east) / 2, (this.aoi.south + this.aoi.north) / 2);
+    this.aoiCentre = new THREE.Vector3(origin.x, origin.y, 0);
+    this.midLat = (this.aoi.south + this.aoi.north) / 2;
     this.minZoom = cfg.minZoom;
     this.maxZoom = cfg.maxZoom;
     this.baseZoom = Math.min(BASE_ZOOM, cfg.maxZoom);
@@ -220,14 +219,15 @@ export class QuadtreeLOD {
 
   /** Loads the resident base pyramid. Finer zooms stream in from update(). */
   async bootstrap(): Promise<void> {
+    const waiting: LodNode[] = [];
     for (let z = this.minZoom; z <= this.baseZoom; z++) {
       for (const node of this.layers.get(z) ?? []) {
         this.enqueue(node);
+        waiting.push(node);
       }
     }
-    const coarse = this.layers.get(this.minZoom) ?? [];
-    await Promise.all(coarse.map((n) => this.waitFor(n)));
-    this.showLayer(this.coarsestCompleteZoom());
+    await Promise.all(waiting.map((n) => this.waitFor(n)));
+    this.showLayer(this.baseZoom);
     this.drainImagery();
   }
 
@@ -238,11 +238,43 @@ export class QuadtreeLOD {
     this.viewProj.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
     this.frustum.setFromProjectionMatrix(this.viewProj);
 
-    const selected: LodNode[] = [];
-    for (const node of this.layers.get(this.coarsestCompleteZoom()) ?? []) {
-      this.select(node, camera, viewportHeight, selected);
+    const wanted = viewTargetZoom({
+      distance: camera.position.distanceTo(this.aoiCentre),
+      fovDeg: camera.fov,
+      viewportHeight,
+      latitudeDeg: this.midLat,
+      minZoom: this.baseZoom,
+      maxZoom: this.maxZoom,
+    });
+
+    for (let z = this.baseZoom + 1; z <= wanted; z++) {
+      for (const node of this.inFrustum(z)) {
+        node.lastWanted = this.frame;
+        if (node.state === 'pending') {
+          this.enqueue(node);
+        }
+        if (node.state === 'ready') {
+          this.enqueueImagery(node);
+        }
+      }
     }
-    this.applySelection(selected);
+
+    let drawZ = wanted;
+    while (drawZ > this.baseZoom && !frustumLayerReady(this.inFrustum(drawZ).map((n) => n.state))) {
+      drawZ -= 1;
+    }
+    if (drawZ <= this.baseZoom) {
+      const layer = this.layers.get(this.baseZoom) ?? [];
+      for (const node of layer) {
+        node.lastWanted = this.frame;
+      }
+      this.applySelection(layer.filter((n) => n.state === 'ready'));
+    } else {
+      for (const node of this.inFrustum(drawZ)) {
+        node.lastWanted = this.frame;
+      }
+      this.applySelection(this.inFrustum(drawZ).filter((n) => n.state === 'ready'));
+    }
 
     this.drainQueue();
     this.drainImagery();
@@ -286,112 +318,27 @@ export class QuadtreeLOD {
     this.group.removeFromParent();
   }
 
-  private layerComplete(z: number): boolean {
-    const layer = this.layers.get(z);
-    if (!layer || layer.length === 0) {
-      return false;
-    }
-    return layer.every((n) => n.state === 'ready' || n.state === 'missing');
-  }
-
-  /** Finest pinned layer that fully covers the AOI right now. */
-  private coarsestCompleteZoom(): number {
-    let z = this.minZoom;
-    for (let candidate = this.minZoom; candidate <= this.baseZoom; candidate++) {
-      if (!this.layerComplete(candidate)) {
-        break;
-      }
-      z = candidate;
-    }
-    return z;
-  }
-
-  /**
-   * Zoom this tile should be refined to: the zoom whose texel is about one
-   * screen pixel at the tile's distance from the camera. Tiles outside the
-   * frustum are left at the base pyramid.
-   */
-  private targetZoom(
-    node: LodNode,
-    camera: THREE.PerspectiveCamera,
-    viewportHeight: number,
-  ): number {
+  private inFrustum(z: number): LodNode[] {
     const exaggeration = Math.max(1, Math.abs(this.shared.uExaggeration.value));
-    const sw = lonLatToLocal(node.clip.west, node.clip.south);
-    const ne = lonLatToLocal(node.clip.east, node.clip.north);
-    this.scratchBox.min.set(
-      Math.min(sw.x, ne.x),
-      Math.min(sw.y, ne.y),
-      -150 * exaggeration,
-    );
-    this.scratchBox.max.set(
-      Math.max(sw.x, ne.x),
-      Math.max(sw.y, ne.y),
-      50 * exaggeration,
-    );
-    if (!this.frustum.intersectsBox(this.scratchBox)) {
-      return this.baseZoom;
-    }
-
-    const dist = Math.max(1, camera.position.distanceTo(node.centre));
-    const metresPerPixel =
-      (2 * dist * Math.tan((camera.fov * Math.PI) / 360)) / Math.max(1, viewportHeight);
-    const midLat = ((node.clip.north + node.clip.south) / 2) * (Math.PI / 180);
-    const wanted = Math.log2(
-      (EQUATOR_M * Math.cos(midLat)) / (TILE_PX * Math.max(1e-6, metresPerPixel)),
-    );
-
-    return Math.max(this.baseZoom, Math.min(this.maxZoom, Math.round(wanted)));
-  }
-
-  /**
-   * Walks down from a base tile, collecting the finest ready tiles. A node is
-   * drawn when it has reached its target zoom, or when its children are not all
-   * loaded yet — in which case the missing detail is requested for later frames.
-   */
-  private select(
-    node: LodNode,
-    camera: THREE.PerspectiveCamera,
-    viewportHeight: number,
-    out: LodNode[],
-  ): void {
-    node.lastWanted = this.frame;
-    if (node.coord.z >= this.maxZoom || node.coord.z >= this.targetZoom(node, camera, viewportHeight)) {
-      out.push(node);
-      return;
-    }
-
-    const children: LodNode[] = [];
-    for (const coord of childrenOf(node.coord)) {
-      // Children outside the AOI covering have no node and cover no ground the
-      // parent draws, since every mesh is clipped to the AOI.
-      const child = this.nodes.get(tileKey(coord));
-      if (child) {
-        children.push(child);
+    const out: LodNode[] = [];
+    for (const node of this.layers.get(z) ?? []) {
+      const sw = lonLatToLocal(node.clip.west, node.clip.south);
+      const ne = lonLatToLocal(node.clip.east, node.clip.north);
+      this.scratchBox.min.set(
+        Math.min(sw.x, ne.x),
+        Math.min(sw.y, ne.y),
+        -150 * exaggeration,
+      );
+      this.scratchBox.max.set(
+        Math.max(sw.x, ne.x),
+        Math.max(sw.y, ne.y),
+        50 * exaggeration,
+      );
+      if (this.frustum.intersectsBox(this.scratchBox)) {
+        out.push(node);
       }
     }
-    if (children.length === 0) {
-      out.push(node);
-      return;
-    }
-
-    for (const child of children) {
-      child.lastWanted = this.frame;
-      if (child.state === 'pending') {
-        this.enqueue(child);
-      }
-      if (child.state === 'ready') {
-        this.enqueueImagery(child);
-      }
-    }
-    if (!canRefine(children.map((c) => this.displayQuery(c)))) {
-      out.push(node);
-      return;
-    }
-
-    for (const child of children) {
-      this.select(child, camera, viewportHeight, out);
-    }
+    return out;
   }
 
   private applySelection(selected: LodNode[]): void {
@@ -409,15 +356,6 @@ export class QuadtreeLOD {
       this.visible.push(node);
       this.enqueueImagery(node);
     }
-  }
-
-  private displayQuery(node: LodNode): DisplayQuery {
-    return {
-      state: node.state,
-      wantImagery: this.wantImagery,
-      hasImagery: node.tile?.hasImagery() ?? false,
-      imageryFailed: node.tile?.imageryFailed() ?? false,
-    };
   }
 
   private applyImageryGate(): void {

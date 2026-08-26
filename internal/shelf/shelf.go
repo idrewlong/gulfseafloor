@@ -193,9 +193,10 @@ func Sample(lon, lat float64) float64 {
 		// would also measure to the synthetic edges that close it, which made
 		// the plain fall back to sea level at the top of the map.
 		inland := f.coast.nearest(lon, lat)
-		// Coastal plain climbing inland, with low pine ridges so it is not a
-		// single plateau, then cut by the river valleys.
-		h := 0.9 + 7.2*smoothstep(0, 11_000, inland)
+		// Berm at the waterline, then a coastal ridge within a few hundred
+		// metres so harbor-cut towns (Gulfport) sit in the scrub band instead
+		// of reading as wet sand.
+		h := 1.4 + 4.2*smoothstep(0, 400, inland) + 5.0*smoothstep(400, 9_000, inland)
 		h += 1.6 * (2*fbm(lon*23, lat*27, 4) - 1) * smoothstep(600, 5_000, inland)
 		if h < 0.6 {
 			h = 0.6 // ridge troughs must not drown the plain
@@ -214,7 +215,7 @@ func Sample(lon, lat float64) float64 {
 	coastDist := f.coast.nearest(lon, lat)
 	islandDist := f.islandShore.nearest(lon, lat)
 	shore := math.Min(coastDist, islandDist)
-	lagoon := inBay || (lon < -88.80 && lat > 29.68)
+	lagoon := inBay || westernLagoon(lon, lat)
 
 	// Sound and bay floors deepen away from their shorelines. A single flat
 	// value reads as a plate once the view is exaggerated. Distance runs to the
@@ -226,8 +227,8 @@ func Sample(lon, lat float64) float64 {
 		depth = -1.6 - 1.6*smoothstep(0, 3_000, shore)
 	}
 
-	// Open shelf: south of the MS barrier chain, or the Alabama gulf east of
-	// Dauphin — not the western lagoons (Borgne, Breton, Chandeleur Sound).
+	// Open shelf: south of the barrier chain, or the Alabama gulf east of
+	// Dauphin — not Borgne / Breton / Chandeleur Sound.
 	if !lagoon && (lon > -88.05 || lat < 30.16) {
 		inner := -7.5 - 30*smoothstep(0, 26_000, shore)
 		outerT := 1 - smoothstep(29.50, 30.02, lat)
@@ -241,13 +242,14 @@ func Sample(lon, lat float64) float64 {
 		}
 	}
 
-	// Shoal toward the mainland beach.
-	depth += 2.2 * (1 - smoothstep(80, 1400, coastDist))
+	// Surf zone only. A 1.4 km / +2.2 m shoal pinned the Sound to the −0.4 m
+	// clamp and painted the Mississippi beaches as a sand plate.
+	depth += 1.0 * (1 - smoothstep(40, 500, coastDist))
 
 	// Sand platform carrying the barrier chain, so each island sits on a shoal
 	// instead of rising straight out of open water. Blended rather than added,
 	// so it cannot pile onto the beach term and flatten against the clamp.
-	if t := smoothstep(150, 3_500, islandDist); t < 1 {
+	if t := smoothstep(150, 1_800, islandDist); t < 1 {
 		depth = depth*t + (-0.55-5.0*t)*(1-t)
 	}
 
@@ -261,6 +263,27 @@ func Sample(lon, lat float64) float64 {
 		depth = -90
 	}
 	return depth
+}
+
+// westernLagoon is Lake Borgne and the Breton/Chandeleur lagoons. It is not
+// Mississippi Sound (north of the barrier chain) and not the open bight south
+// of Cat and Ship Islands — those must take the same shelf as south of Horn.
+func westernLagoon(lon, lat float64) bool {
+	if lon >= -88.85 {
+		return false
+	}
+	if lat >= 30.12 {
+		return false
+	}
+	if lat <= 29.70 {
+		return false
+	}
+	// Open bight immediately south of Cat and Ship — not Lake Borgne, not the
+	// water east of New Orleans, and not Chandeleur Sound.
+	if lat >= 30.02 && lat < 30.12 && lon > -89.20 && lon < -88.85 {
+		return false
+	}
+	return true
 }
 
 func smoothstep(edge0, edge1, x float64) float64 {

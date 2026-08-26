@@ -80,14 +80,14 @@ void main() {
   beach = mix(beach, dune, smoothstep(0.6, 2.0, elev));
   vec3 ground = mix(beach, scrub, smoothstep(1.5, 3.3, elev));
 
-  // Beer–Lambert through turbid Sound water; sand bed in the shallows.
-  float gulf = smoothstep(5.0, max(12.0, -uDepthMin * 0.45), depth);
+  // Beer–Lambert through turbid Sound water; sand bed only in the last metre.
+  float gulf = smoothstep(2.0, max(12.0, -uDepthMin * 0.45), depth);
   vec3 scatter = mix(
     mix(vec3(0.42, 0.62, 0.58), vec3(0.20, 0.40, 0.42), smoothstep(1.0, 8.0, depth)),
     vec3(0.12, 0.30, 0.40),
     gulf
   );
-  float absorb = 1.0 - exp(-mix(0.28, 0.10, gulf) * depth);
+  float absorb = 1.0 - exp(-mix(0.50, 0.10, gulf) * depth);
   vec3 water = mix(vec3(0.62, 0.58, 0.42), scatter, absorb);
 
   float foam = (1.0 - land) * (1.0 - smoothstep(-0.45, 0.12, elev));

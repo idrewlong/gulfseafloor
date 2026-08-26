@@ -7,6 +7,9 @@ export type DisplayQuery = {
   imageryFailed: boolean;
 };
 
+const EQUATOR_M = 40_075_016.686;
+const TILE_PX = 256;
+
 /** Height-ready tiles may be drawn. Satellite is a separate global gate. */
 export function isDisplayReady(opts: DisplayQuery): boolean {
   if (opts.state === 'missing') {
@@ -29,6 +32,33 @@ export function canRefine(children: DisplayQuery[]): boolean {
     }
   }
   return true;
+}
+
+/** One zoom for the whole view, from camera distance. Per-tile round() quilts z and z+1. */
+export function viewTargetZoom(opts: {
+  distance: number;
+  fovDeg: number;
+  viewportHeight: number;
+  latitudeDeg: number;
+  minZoom: number;
+  maxZoom: number;
+}): number {
+  const metresPerPixel =
+    (2 * Math.max(1, opts.distance) * Math.tan((opts.fovDeg * Math.PI) / 360)) /
+    Math.max(1, opts.viewportHeight);
+  const wanted = Math.log2(
+    (EQUATOR_M * Math.cos((opts.latitudeDeg * Math.PI) / 180)) /
+      (TILE_PX * Math.max(1e-6, metresPerPixel)),
+  );
+  return Math.max(opts.minZoom, Math.min(opts.maxZoom, Math.round(wanted)));
+}
+
+/** Draw a zoom only when every in-view tile at that zoom has height. */
+export function frustumLayerReady(states: NodeLoadState[]): boolean {
+  if (states.length === 0) {
+    return false;
+  }
+  return states.every((s) => s === 'ready');
 }
 
 /** Gate the satellite layer so every visible tile switches together instead of quilting. */

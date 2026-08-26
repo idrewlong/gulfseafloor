@@ -82,85 +82,6 @@ body {
   touch-action: none;
 }
 
-#cesium {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  z-index: 0;
-}
-
-#cesium .cesium-viewer,
-#cesium .cesium-viewer-cesiumWidgetContainer,
-#cesium .cesium-widget,
-#cesium .cesium-widget canvas {
-  width: 100%;
-  height: 100%;
-}
-
-#cesium .cesium-viewer-bottom,
-#cesium .cesium-widget-credits {
-  display: none;
-}
-
-#app.is-globe #terrain,
-#app.is-globe .neatline,
-#app.is-globe .legend,
-#app.is-globe .geo-labels {
-  visibility: hidden;
-  pointer-events: none;
-}
-
-#app.is-bathymetry #cesium {
-  visibility: hidden;
-  pointer-events: none;
-}
-
-#app.is-bathymetry #imagery {
-  display: none;
-}
-
-#app.is-globe #ocean,
-#app.is-globe .ocean-about,
-#app.is-globe #aircraft,
-#app.is-globe .aircraft-about {
-  display: none;
-}
-#app.is-globe #buoy-marks,
-#app.is-globe #aircraft-marks {
-  visibility: hidden;
-  pointer-events: none;
-}
-
-#app.is-bathymetry .credits {
-  display: none;
-}
-
-#app.is-bathymetry .controls {
-  grid-template-columns: minmax(180px, 1.3fr) minmax(150px, 0.9fr) minmax(150px, 0.9fr) minmax(120px, 0.8fr) minmax(120px, 0.8fr) minmax(120px, 0.8fr);
-}
-
-.view-mode {
-  margin: 0;
-  padding: 4px 6px;
-  border: 1px solid var(--ink);
-  background: var(--land);
-  color: var(--ink);
-  display: flex;
-  gap: 8px;
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.view-mode label {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  cursor: pointer;
-}
-
 .neatline {
   pointer-events: none;
   position: absolute;
@@ -455,7 +376,7 @@ body {
   bottom: 10px;
   z-index: 4;
   display: grid;
-  grid-template-columns: minmax(180px, 1.3fr) minmax(150px, 0.9fr) minmax(150px, 0.9fr) minmax(120px, 0.8fr) minmax(120px, 0.8fr);
+  grid-template-columns: minmax(180px, 1.3fr) minmax(150px, 0.9fr) minmax(150px, 0.9fr) minmax(120px, 0.8fr) minmax(120px, 0.8fr) minmax(120px, 0.8fr);
   gap: 12px 16px;
   padding: 10px 14px 8px;
   background: var(--land);
@@ -636,18 +557,6 @@ body {
   font-weight: 500;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  text-shadow: 0 1px 0 var(--deep);
-  pointer-events: none;
-}
-
-.credits {
-  position: absolute;
-  right: 90px;
-  bottom: 108px;
-  margin: 0;
-  color: var(--drying);
-  font-size: 11px;
-  letter-spacing: 0.06em;
   text-shadow: 0 1px 0 var(--deep);
   pointer-events: none;
 }
@@ -850,8 +759,7 @@ body {
 }
 
 @media (max-width: 1279px) {
-  .controls,
-  #app.is-bathymetry .controls {
+  .controls {
     grid-template-columns: 1fr 1fr;
     right: 10px;
   }
@@ -872,11 +780,6 @@ body {
 
   .locator {
     bottom: 160px;
-  }
-
-  .credits {
-    right: 18px;
-    bottom: 248px;
   }
 }
 

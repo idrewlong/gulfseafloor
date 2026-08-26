@@ -17,6 +17,7 @@ import (
 	"runtime"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/idrewlong/gulfseafloor/internal/shelf"
 	"github.com/idrewlong/gulfseafloor/internal/terrain"
@@ -59,6 +60,11 @@ func synth(args []string) error {
 	}
 
 	workers := runtime.GOMAXPROCS(0)
+	total := int64(len(jobs))
+	start := time.Now()
+	fmt.Fprintf(os.Stderr, "synth: %d tiles, z %d–%d, %d workers\n", total, *zmin, *zmax, workers)
+	fmt.Fprintln(os.Stderr, formatProgress(0, total, 0))
+
 	ch := make(chan tiles.Tile)
 	var wg sync.WaitGroup
 	var written atomic.Int64
@@ -78,16 +84,35 @@ func synth(args []string) error {
 		}()
 	}
 
+	stop := make(chan struct{})
+	var report sync.WaitGroup
+	report.Add(1)
+	go func() {
+		defer report.Done()
+		tick := time.NewTicker(2 * time.Second)
+		defer tick.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-tick.C:
+				fmt.Fprintln(os.Stderr, formatProgress(written.Load(), total, time.Since(start)))
+			}
+		}
+	}()
+
 	for _, t := range jobs {
 		ch <- t
 	}
 	close(ch)
 	wg.Wait()
+	close(stop)
+	report.Wait()
 	close(errCh)
 	if err := <-errCh; err != nil {
 		return err
 	}
-	fmt.Printf("wrote %d tiles to %s (z %d–%d)\n", written.Load(), *out, *zmin, *zmax)
+	fmt.Printf("wrote %d tiles to %s (z %d–%d) in %s\n", written.Load(), *out, *zmin, *zmax, formatElapsed(time.Since(start)))
 	return nil
 }
 

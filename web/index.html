@@ -12,8 +12,7 @@
   </head>
   <body>
     <a class="skip-link" href="#controls">Skip to controls</a>
-    <div id="app" class="is-bathymetry">
-      <div id="cesium"></div>
+    <div id="app">
       <canvas
         id="terrain"
         tabindex="0"
@@ -27,11 +26,6 @@
           <p id="region-line">Mississippi Sound · synthetic seed</p>
         </div>
         <div class="chart-head-actions">
-          <fieldset id="view-mode" class="view-mode">
-            <legend class="visually-hidden">Renderer</legend>
-            <label><input type="radio" name="view-mode" value="globe" /> Globe</label>
-            <label><input type="radio" name="view-mode" value="bathymetry" checked /> Bathymetry</label>
-          </fieldset>
           <div class="nav-help" id="nav-help">
             <button
               type="button"
@@ -79,9 +73,6 @@
       <p id="caption" class="scene-caption">
         Looking north · Mississippi Sound · synthetic depths · 1× vertical
       </p>
-      <p id="credits" class="credits" hidden>
-        Imagery: Esri, Maxar, Earthstar Geographics
-      </p>
 
       <p id="status" class="status" role="status" hidden></p>
 
@@ -111,26 +102,17 @@
           </div>
         </fieldset>
 
-        <fieldset id="imagery" class="control-block">
-          <legend>Satellite</legend>
-          <div class="radio-row">
-            <label><input type="radio" name="imagery" value="0" /> Off</label>
-            <label><input type="radio" name="imagery" value="0.45" /> Blend</label>
-            <label><input type="radio" name="imagery" value="0.88" checked /> On</label>
-          </div>
-        </fieldset>
-
         <fieldset id="ocean" class="control-block">
           <legend>Ocean</legend>
           <div class="radio-row">
             <span class="ocean-layer">Currents</span>
-            <label><input type="radio" name="currents" value="0" /> Off</label>
-            <label><input type="radio" name="currents" value="1" checked /> On</label>
+            <label><input type="radio" name="currents" value="0" checked /> Off</label>
+            <label><input type="radio" name="currents" value="1" /> On</label>
           </div>
           <div class="radio-row">
             <span class="ocean-layer">Buoys</span>
-            <label><input type="radio" name="buoys" value="0" /> Off</label>
-            <label><input type="radio" name="buoys" value="1" checked /> On</label>
+            <label><input type="radio" name="buoys" value="0" checked /> Off</label>
+            <label><input type="radio" name="buoys" value="1" /> On</label>
           </div>
         </fieldset>
 
@@ -181,9 +163,7 @@
           <p>
             The surface is a <strong>heightfield</strong>. Each PNG tile stores depth in its
             RGB values (Mapzen Terrarium encoding). The GPU lifts every vertex from that
-            depth. Bathymetry tints that surface by depth (hypsometric colour, hillshade,
-            optional contours). Globe drapes Esri satellite imagery on the same heights
-            so land and water both sit on the displaced mesh.
+            depth and tints it by depth (hypsometric colour, hillshade, optional contours).
           </p>
           <p>
             Zoom levels 6–12 are the same idea as a web map: more tiles, finer ground sample.
@@ -199,7 +179,7 @@
           <div class="ocean-about">
             <h3>Ocean overlay</h3>
             <p>
-              On bathymetry, a snapshot HYCOM surface-current field can be drawn as
+              A snapshot HYCOM surface-current field can be drawn as
               particles. Motion is visually exaggerated and is not a time stepper.
               NDBC stations appear as wind barbs. This viewer is
               <strong>not an official NOAA product</strong>. Surface currents courtesy
@@ -211,19 +191,12 @@
           <div class="aircraft-about">
             <h3>Aircraft overlay</h3>
             <p>
-              On bathymetry, live public ADS-B positions over this box can appear as
+              Live public ADS-B positions over this box can appear as
               heading marks. Data from The OpenSky Network, with adsb.lol as fallback.
               Not for navigation. Not a snapshot; this layer is empty with the network
               unplugged. Do not infer endorsement by OpenSky or adsb.lol.
             </p>
           </div>
-          <h3>Two views</h3>
-          <p>
-            <strong>Globe</strong> is CesiumJS on a WGS84 ellipsoid: Esri imagery
-            draped on the same Terrarium height tiles. No Cesium ion token.
-            <strong>Bathymetry</strong> is the custom three.js heightfield — hypsometric
-            tint only; satellite stays on Globe.
-          </p>
           <h3>Export control</h3>
           <p>
             Every byte in this repository is from a public, unauthenticated source. No CUI,

@@ -12,7 +12,7 @@ function assertRgb(got: readonly number[], want: readonly number[]): void {
 
 describe('unlitBaseColor', () => {
   it('matches the terrain shader gulf water at −30 m', () => {
-    assertRgb(unlitBaseColor(-30), [0.30457394438860674, 0.4480201319755779, 0.5119399604636186]);
+    assertRgb(unlitBaseColor(-30), [0.29946924214523823, 0.44455435665104304, 0.5115509900052864]);
   });
 
   it('matches the terrain shader sand/water mix at 0 m', () => {
@@ -21,6 +21,14 @@ describe('unlitBaseColor', () => {
 
   it('matches the terrain shader scrub at +4 m', () => {
     assertRgb(unlitBaseColor(4), [0.38, 0.44, 0.3]);
+  });
+
+  it('paints Sound-scale shallows as water, not a sand bed', () => {
+    const sound = unlitBaseColor(-2);
+    assert.ok(
+      sound[1] > sound[0] && sound[2] > sound[0],
+      `−2 m should read as teal water, got ${sound.join(', ')}`,
+    );
   });
 });
 

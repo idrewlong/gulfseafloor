@@ -77,7 +77,7 @@ func serveSPA(w http.ResponseWriter, r *http.Request, root fs.FS) {
 
 	f, err := root.Open(clean)
 	if err != nil {
-		// Missing JS/CSS/wasm must 404 — SPA fallback would feed HTML to Cesium workers.
+		// Missing JS/CSS/wasm must 404 — SPA fallback would feed HTML to the asset.
 		if ext := path.Ext(clean); ext != "" && ext != ".html" {
 			http.NotFound(w, r)
 			return
