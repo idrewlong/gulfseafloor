@@ -138,6 +138,11 @@ func TestReadyzOKWhenAircraftDisabled(t *testing.T) {
 func TestAircraftSingleflightCoalesces(t *testing.T) {
 	started := make(chan struct{}, 2)
 	release := make(chan struct{})
+	var releaseOnce sync.Once
+	releaseUpstream := func() {
+		releaseOnce.Do(func() { close(release) })
+	}
+	defer releaseUpstream()
 	var n atomic.Int32
 	base := aircraftHandler(t, func(w http.ResponseWriter, r *http.Request) {
 		n.Add(1)
@@ -186,7 +191,7 @@ func TestAircraftSingleflightCoalesces(t *testing.T) {
 		t.Fatal("second upstream fetch started before release")
 	default:
 	}
-	close(release)
+	releaseUpstream()
 	for i := 0; i < 2; i++ {
 		if code := <-done; code != http.StatusOK {
 			t.Fatalf("status %d", code)
@@ -200,6 +205,11 @@ func TestAircraftSingleflightCoalesces(t *testing.T) {
 func TestAircraftSingleflightFetchSurvivesFirstCallerCancellation(t *testing.T) {
 	started := make(chan struct{})
 	release := make(chan struct{})
+	var releaseOnce sync.Once
+	releaseUpstream := func() {
+		releaseOnce.Do(func() { close(release) })
+	}
+	defer releaseUpstream()
 	upstreamCanceled := make(chan struct{})
 	base := aircraftHandler(t, func(w http.ResponseWriter, r *http.Request) {
 		close(started)
@@ -254,7 +264,7 @@ func TestAircraftSingleflightFetchSurvivesFirstCallerCancellation(t *testing.T) 
 	case <-upstreamCanceled:
 	case <-time.After(50 * time.Millisecond):
 	}
-	close(release)
+	releaseUpstream()
 
 	for i := 0; i < 2; i++ {
 		if code := <-done; code != http.StatusOK {
