@@ -20,6 +20,10 @@ export type AircraftSnapshot = {
   aircraft: Aircraft[];
 };
 
+export const AIRCRAFT_POLL_MS = 10_000;
+export const AIRCRAFT_REPROBE_MS = 60_000;
+export const AIRCRAFT_MAX_DEAD_RECKON_SEC = 20;
+
 export function aircraftAvailable(status: number): boolean {
   return status === 200;
 }
@@ -35,6 +39,19 @@ export function shouldPollAircraft(opts: {
   available: boolean;
 }): boolean {
   return opts.mode === 'bathymetry' && opts.layerOn && !opts.documentHidden && opts.available;
+}
+
+export function shouldReprobeAircraft(opts: {
+  mode: 'globe' | 'bathymetry';
+  documentHidden: boolean;
+  available: boolean;
+  primed: boolean;
+}): boolean {
+  return opts.primed && !opts.available && opts.mode === 'bathymetry' && !opts.documentHidden;
+}
+
+export function aircraftPollIntervalMs(available: boolean): number {
+  return available ? AIRCRAFT_POLL_MS : AIRCRAFT_REPROBE_MS;
 }
 
 export function aircraftCaption(source: string | null, fetchedAt: string | null): string {
@@ -74,9 +91,10 @@ export function deadReckon(a: Aircraft, dtSec: number): { lon: number; lat: numb
     return { lon: a.lon, lat: a.lat };
   }
 
+  const dt = Math.min(Math.max(dtSec, 0), AIRCRAFT_MAX_DEAD_RECKON_SEC);
   const trackRad = (a.trackDeg * Math.PI) / 180;
-  const eastM = a.gsMps * Math.sin(trackRad) * dtSec;
-  const northM = a.gsMps * Math.cos(trackRad) * dtSec;
+  const eastM = a.gsMps * Math.sin(trackRad) * dt;
+  const northM = a.gsMps * Math.cos(trackRad) * dt;
   const mPerDegLat = 111_320;
   const mPerDegLon = mPerDegLat * Math.cos((a.lat * Math.PI) / 180);
   return {

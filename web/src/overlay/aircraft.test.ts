@@ -2,7 +2,12 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { AOI } from '../geo.ts';
 import { type LabelCandidate } from '../ui/labelLayout.ts';
-import { AIRCRAFT_ID_BASE, layoutAircraftVisibility, parseAircraftJson } from './aircraft.ts';
+import {
+  AIRCRAFT_ID_BASE,
+  layoutAircraftVisibility,
+  parseAircraftJson,
+  planAircraftMarkReuse,
+} from './aircraft.ts';
 import { AIRCRAFT_RANK } from './aircraftUi.ts';
 import { BUOY_RANK } from './oceanUi.ts';
 
@@ -60,7 +65,18 @@ describe('parseAircraftJson', () => {
   it('rejects an invalid snapshot envelope', () => {
     assert.equal(parseAircraftJson({ source: 'other', fetchedAt: 'now', aircraft: [] }), null);
     assert.equal(parseAircraftJson({ source: 'opensky', fetchedAt: '', aircraft: [] }), null);
-    assert.equal(parseAircraftJson({ source: 'opensky', fetchedAt: 'now', aircraft: null }), null);
+    assert.equal(parseAircraftJson({ source: 'opensky', fetchedAt: 'now', aircraft: 'nope' }), null);
+  });
+
+  it('treats null or missing aircraft as an empty list', () => {
+    const missing = parseAircraftJson({ source: 'opensky', fetchedAt: '2026-08-26T02:00:00Z' });
+    assert.deepEqual(missing, { source: 'opensky', fetchedAt: '2026-08-26T02:00:00Z', aircraft: [] });
+    const nullable = parseAircraftJson({
+      source: 'adsb.lol',
+      fetchedAt: '2026-08-26T02:10:00Z',
+      aircraft: null,
+    });
+    assert.deepEqual(nullable, { source: 'adsb.lol', fetchedAt: '2026-08-26T02:10:00Z', aircraft: [] });
   });
 });
 
@@ -106,5 +122,21 @@ describe('layoutAircraftVisibility', () => {
     assert.equal(visible.has(AIRCRAFT_ID_BASE), false);
     assert.deepEqual(candidates, []);
     assert.deepEqual(positions, [null]);
+  });
+});
+
+describe('planAircraftMarkReuse', () => {
+  it('reuses marks by icao24 when the set changes', () => {
+    const plan = planAircraftMarkReuse(['aaa', 'bbb'], ['ccc', 'bbb']);
+    assert.deepEqual(plan.reuse, ['bbb']);
+    assert.deepEqual(plan.create, ['ccc']);
+    assert.deepEqual(plan.remove, ['aaa']);
+  });
+
+  it('reuses every mark when identity is unchanged', () => {
+    const plan = planAircraftMarkReuse(['aaa', 'bbb'], ['aaa', 'bbb']);
+    assert.deepEqual(plan.reuse, ['aaa', 'bbb']);
+    assert.deepEqual(plan.create, []);
+    assert.deepEqual(plan.remove, []);
   });
 });

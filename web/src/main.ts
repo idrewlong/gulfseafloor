@@ -28,8 +28,10 @@ import {
   aircraftAvailable,
   aircraftCaption,
   aircraftChromeHidden,
+  aircraftPollIntervalMs,
   deadReckon,
   shouldPollAircraft,
+  shouldReprobeAircraft,
   type Aircraft,
 } from './overlay/aircraftUi';
 import { availabilityFromHttp, defaultOn, oceanCaption, oceanChromeHidden, unavailableOceanResponse } from './overlay/oceanUi';
@@ -373,9 +375,32 @@ async function start(): Promise<void> {
     aircraftHandle?.setAircraft([]);
     aircraftHandle?.setEnabled(false);
     aircraftMarks.hidden = true;
+  };
+
+  const aircraftPollOpts = (): {
+    mode: ViewMode;
+    layerOn: boolean;
+    documentHidden: boolean;
+    available: boolean;
+    primed: boolean;
+  } => ({
+    mode: viewMode,
+    layerOn: aircraftOn,
+    documentHidden: document.hidden,
+    available: aircraftAvailableStatus,
+    primed: aircraftPrimed,
+  });
+
+  const scheduleAircraftTimer = (): void => {
     if (aircraftTimer !== undefined) {
       window.clearInterval(aircraftTimer);
       aircraftTimer = undefined;
+    }
+    const opts = aircraftPollOpts();
+    if (shouldPollAircraft(opts) || shouldReprobeAircraft(opts)) {
+      aircraftTimer = window.setInterval(() => {
+        void pullAircraft();
+      }, aircraftPollIntervalMs(aircraftAvailableStatus));
     }
   };
 
@@ -385,6 +410,7 @@ async function start(): Promise<void> {
       if (!aircraftAvailable(res.status)) {
         applyAircraftUnavailable();
         setCaption(exaggeration);
+        scheduleAircraftTimer();
         return;
       }
       let raw: unknown = null;
@@ -397,10 +423,12 @@ async function start(): Promise<void> {
       if (!parsed) {
         applyAircraftUnavailable();
         setCaption(exaggeration);
+        scheduleAircraftTimer();
         return;
       }
+      const recovering = !aircraftAvailableStatus;
       aircraftAvailableStatus = true;
-      if (!aircraftPrimed) {
+      if (!aircraftPrimed || recovering) {
         aircraftOn = true;
         aircraftPrimed = true;
       }
@@ -413,31 +441,23 @@ async function start(): Promise<void> {
       aircraftHandle?.setEnabled(show);
       aircraftMarks.hidden = !show;
       setCaption(exaggeration);
+      scheduleAircraftTimer();
     } catch {
       applyAircraftUnavailable();
       setCaption(exaggeration);
+      scheduleAircraftTimer();
     }
   };
 
   const restartAircraftPoll = (): void => {
     if (aircraftTimer !== undefined) {
       window.clearInterval(aircraftTimer);
+      aircraftTimer = undefined;
     }
-    aircraftTimer = undefined;
-    if (
-      !shouldPollAircraft({
-        mode: viewMode,
-        layerOn: aircraftOn,
-        documentHidden: document.hidden,
-        available: aircraftAvailableStatus,
-      })
-    ) {
-      return;
-    }
-    void pullAircraft();
-    aircraftTimer = window.setInterval(() => {
+    const opts = aircraftPollOpts();
+    if (shouldPollAircraft(opts) || shouldReprobeAircraft(opts)) {
       void pullAircraft();
-    }, 10_000);
+    }
   };
   document.addEventListener('visibilitychange', restartAircraftPoll);
 
@@ -689,24 +709,7 @@ async function start(): Promise<void> {
     setCaption(exaggeration);
   })();
 
-  void pullAircraft().then(() => {
-    if (aircraftTimer !== undefined) {
-      window.clearInterval(aircraftTimer);
-      aircraftTimer = undefined;
-    }
-    if (
-      shouldPollAircraft({
-        mode: viewMode,
-        layerOn: aircraftOn,
-        documentHidden: document.hidden,
-        available: aircraftAvailableStatus,
-      })
-    ) {
-      aircraftTimer = window.setInterval(() => {
-        void pullAircraft();
-      }, 10_000);
-    }
-  });
+  void pullAircraft();
 
   await ensureBathymetry();
 

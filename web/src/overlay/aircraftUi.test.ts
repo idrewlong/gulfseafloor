@@ -2,12 +2,16 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
   AIRCRAFT_RANK,
+  AIRCRAFT_POLL_MS,
+  AIRCRAFT_REPROBE_MS,
   aircraftAvailable,
   aircraftCaption,
   aircraftChromeHidden,
+  aircraftPollIntervalMs,
   aircraftReadout,
   deadReckon,
   shouldPollAircraft,
+  shouldReprobeAircraft,
 } from './aircraftUi.ts';
 
 describe('aircraftAvailable', () => {
@@ -81,6 +85,14 @@ describe('deadReckon', () => {
     const a = { icao24: 'x', lon: -89, lat: 30, trackDeg: 90, gsMps: 100, onGround: false };
     assert.deepEqual(deadReckon(a, 0), { lon: -89, lat: 30 });
   });
+
+  it('clamps coasting to about two poll intervals', () => {
+    const a = { icao24: 'x', lon: -89, lat: 30, trackDeg: 0, gsMps: 111.32, onGround: false };
+    const capped = deadReckon(a, 20);
+    const acrossGap = deadReckon(a, 600);
+    assert.deepEqual(acrossGap, capped);
+    assert.ok(capped.lat > 30.019 && capped.lat < 30.021);
+  });
 });
 
 describe('AIRCRAFT_RANK', () => {
@@ -97,5 +109,64 @@ describe('shouldPollAircraft', () => {
     assert.equal(shouldPollAircraft({ mode: 'bathymetry', ...on, documentHidden: true }), false);
     assert.equal(shouldPollAircraft({ mode: 'bathymetry', ...on, layerOn: false }), false);
     assert.equal(shouldPollAircraft({ mode: 'bathymetry', ...on, available: false }), false);
+  });
+});
+
+describe('shouldReprobeAircraft', () => {
+  it('reprobes a dead feed slowly while bathymetry is visible', () => {
+    assert.equal(
+      shouldReprobeAircraft({
+        mode: 'bathymetry',
+        documentHidden: false,
+        available: false,
+        primed: true,
+      }),
+      true,
+    );
+    assert.equal(
+      shouldReprobeAircraft({
+        mode: 'globe',
+        documentHidden: false,
+        available: false,
+        primed: true,
+      }),
+      false,
+    );
+    assert.equal(
+      shouldReprobeAircraft({
+        mode: 'bathymetry',
+        documentHidden: true,
+        available: false,
+        primed: true,
+      }),
+      false,
+    );
+    assert.equal(
+      shouldReprobeAircraft({
+        mode: 'bathymetry',
+        documentHidden: false,
+        available: true,
+        primed: true,
+      }),
+      false,
+    );
+    assert.equal(
+      shouldReprobeAircraft({
+        mode: 'bathymetry',
+        documentHidden: false,
+        available: false,
+        primed: false,
+      }),
+      false,
+    );
+  });
+});
+
+describe('aircraftPollIntervalMs', () => {
+  it('uses 10s while live and 60s after unavailable', () => {
+    assert.equal(AIRCRAFT_POLL_MS, 10_000);
+    assert.equal(AIRCRAFT_REPROBE_MS, 60_000);
+    assert.equal(aircraftPollIntervalMs(true), 10_000);
+    assert.equal(aircraftPollIntervalMs(false), 60_000);
   });
 });

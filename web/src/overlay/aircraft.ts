@@ -48,14 +48,17 @@ export function parseAircraftJson(raw: unknown): AircraftSnapshot | null {
   if (
     (snapshot.source !== 'opensky' && snapshot.source !== 'adsb.lol') ||
     typeof snapshot.fetchedAt !== 'string' ||
-    snapshot.fetchedAt === '' ||
-    !Array.isArray(snapshot.aircraft)
+    snapshot.fetchedAt === ''
   ) {
+    return null;
+  }
+  const rawAircraft = snapshot.aircraft == null ? [] : snapshot.aircraft;
+  if (!Array.isArray(rawAircraft)) {
     return null;
   }
 
   const aircraft: Aircraft[] = [];
-  for (const rawRow of snapshot.aircraft) {
+  for (const rawRow of rawAircraft) {
     if (rawRow == null || typeof rawRow !== 'object') {
       continue;
     }
@@ -178,6 +181,19 @@ function syncAircraftReadout(marks: readonly EngagedAircraftMark[]): void {
   setAircraftReadout(el, engaged ? aircraftReadout(engaged) : null);
 }
 
+export function planAircraftMarkReuse(
+  existingIcaos: readonly string[],
+  nextIcaos: readonly string[],
+): { reuse: string[]; create: string[]; remove: string[] } {
+  const existing = new Set(existingIcaos);
+  const next = new Set(nextIcaos);
+  return {
+    reuse: nextIcaos.filter((id) => existing.has(id)),
+    create: nextIcaos.filter((id) => !existing.has(id)),
+    remove: existingIcaos.filter((id) => !next.has(id)),
+  };
+}
+
 function applyMarkContent(btn: HTMLButtonElement, aircraft: Aircraft): void {
   btn.dataset.icao24 = aircraft.icao24;
   btn.classList.toggle('is-square', usesSquare(aircraft));
@@ -230,21 +246,38 @@ export function mountAircraft(root: HTMLElement, aoi?: BBox): AircraftHandle {
     btn.addEventListener('blur', sync);
   };
 
-  const rebuild = (next: Aircraft[]): void => {
-    root.replaceChildren();
+  const reconcile = (next: Aircraft[]): void => {
+    const plan = planAircraftMarkReuse(
+      buttons.map((btn) => btn.dataset.icao24 ?? ''),
+      next.map((aircraft) => aircraft.icao24),
+    );
+    const prevByIcao = new Map(
+      buttons.map((btn) => [btn.dataset.icao24 ?? '', btn] as const),
+    );
+    const nextButtons: HTMLButtonElement[] = [];
+    for (const aircraft of next) {
+      const existing = prevByIcao.get(aircraft.icao24);
+      if (existing && plan.reuse.includes(aircraft.icao24)) {
+        applyMarkContent(existing, aircraft);
+        nextButtons.push(existing);
+      } else {
+        const btn = makeMark(aircraft);
+        bind(btn);
+        nextButtons.push(btn);
+      }
+    }
+    for (const id of plan.remove) {
+      prevByIcao.get(id)?.remove();
+    }
+    root.replaceChildren(...nextButtons);
     rows = next;
-    buttons = next.map((aircraft) => {
-      const btn = makeMark(aircraft);
-      bind(btn);
-      root.append(btn);
-      return btn;
-    });
+    buttons = nextButtons;
   };
 
   const sameIdentity = (next: Aircraft[]): boolean =>
     next.length === rows.length && next.every((aircraft, i) => aircraft.icao24 === rows[i]?.icao24);
 
-  rebuild([]);
+  reconcile([]);
 
   return {
     layout(project, width, height, extraCandidates) {
@@ -311,7 +344,7 @@ export function mountAircraft(root: HTMLElement, aoi?: BBox): AircraftHandle {
         }
         return;
       }
-      rebuild(next);
+      reconcile(next);
     },
   };
 }

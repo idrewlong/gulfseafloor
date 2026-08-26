@@ -88,7 +88,11 @@ func TestAircraftHEADOmitsBody(t *testing.T) {
 }
 
 func TestAircraftPOSTIs405(t *testing.T) {
-	h := New(Config{TileDir: "testdata/tiles", WebDir: t.TempDir(), TileWorkers: 1, AircraftEnabled: true})
+	h := aircraftHandler(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Error("OpenSky must not be called")
+	}, func(w http.ResponseWriter, r *http.Request) {
+		t.Error("adsb.lol must not be called")
+	}, time.Now)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/aircraft", nil))
 	if rec.Code != http.StatusMethodNotAllowed {
@@ -128,6 +132,19 @@ func TestAircraftStaleCacheWhenBothDown(t *testing.T) {
 
 func TestReadyzOKWhenAircraftDisabled(t *testing.T) {
 	h := New(Config{TileDir: "testdata/tiles", WebDir: t.TempDir(), TileWorkers: 1, AircraftEnabled: false})
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d", rec.Code)
+	}
+}
+
+func TestReadyzOKWhenAircraftEnabledDoesNotHitFeeds(t *testing.T) {
+	h := aircraftHandler(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Error("OpenSky must not be called")
+	}, func(w http.ResponseWriter, r *http.Request) {
+		t.Error("adsb.lol must not be called")
+	}, time.Now)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/readyz", nil))
 	if rec.Code != http.StatusOK {

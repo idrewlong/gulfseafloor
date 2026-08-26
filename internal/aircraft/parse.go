@@ -42,8 +42,8 @@ func ParseOpenSky(raw []byte, fetchedAt time.Time, clip tiles.BBox) (Snapshot, e
 	if err := json.Unmarshal(raw, &doc); err != nil {
 		return Snapshot{}, fmt.Errorf("aircraft: opensky: %w", err)
 	}
-	if doc.States == nil {
-		return Snapshot{Source: SourceOpenSky, FetchedAt: fetchedAt.UTC(), Aircraft: nil}, nil
+	if doc.States == nil || string(doc.States) == "null" {
+		return Snapshot{Source: SourceOpenSky, FetchedAt: fetchedAt.UTC(), Aircraft: []Aircraft{}}, nil
 	}
 	var states [][]json.RawMessage
 	if err := json.Unmarshal(doc.States, &states); err != nil {
@@ -112,8 +112,8 @@ func ParseAdsbLol(raw []byte, fetchedAt time.Time, clip tiles.BBox) (Snapshot, e
 	if err := json.Unmarshal(raw, &doc); err != nil {
 		return Snapshot{}, fmt.Errorf("aircraft: adsb.lol: %w", err)
 	}
-	if doc.AC == nil {
-		return Snapshot{Source: SourceAdsbLol, FetchedAt: fetchedAt.UTC(), Aircraft: nil}, nil
+	if doc.AC == nil || string(doc.AC) == "null" {
+		return Snapshot{Source: SourceAdsbLol, FetchedAt: fetchedAt.UTC(), Aircraft: []Aircraft{}}, nil
 	}
 	var ac []json.RawMessage
 	if err := json.Unmarshal(doc.AC, &ac); err != nil {
@@ -165,8 +165,9 @@ func parseAdsbLolRow(raw json.RawMessage) (Aircraft, bool) {
 	if callsign != "" {
 		a.Callsign = callsign
 	}
-	if alt, ok := parseAdsbLolAlt(row.AltBaro); ok {
-		a.AltBaroM = &alt
+	altM, altKind := parseAdsbLolAlt(row.AltBaro)
+	if altKind == adsbAltNumeric {
+		a.AltBaroM = &altM
 	}
 	if row.Track != nil {
 		a.TrackDeg = row.Track
@@ -175,28 +176,43 @@ func parseAdsbLolRow(raw json.RawMessage) (Aircraft, bool) {
 		gs := KnotsToMps(*row.Gs)
 		a.GsMps = &gs
 	}
-	if row.Ground != nil {
+	switch {
+	case row.Ground != nil:
 		a.OnGround = row.Ground
+	case altKind == adsbAltGround:
+		onGround := true
+		a.OnGround = &onGround
+	case altKind == adsbAltNumeric:
+		onGround := false
+		a.OnGround = &onGround
 	}
 	return a, true
 }
 
-func parseAdsbLolAlt(raw json.RawMessage) (float64, bool) {
+type adsbAltKind int
+
+const (
+	adsbAltNone adsbAltKind = iota
+	adsbAltGround
+	adsbAltNumeric
+)
+
+func parseAdsbLolAlt(raw json.RawMessage) (float64, adsbAltKind) {
 	if len(raw) == 0 || string(raw) == "null" {
-		return 0, false
+		return 0, adsbAltNone
 	}
 	var s string
 	if err := json.Unmarshal(raw, &s); err == nil {
 		if strings.EqualFold(s, "ground") {
-			return 0, false
+			return 0, adsbAltGround
 		}
-		return 0, false
+		return 0, adsbAltNone
 	}
 	var ft float64
 	if err := json.Unmarshal(raw, &ft); err != nil {
-		return 0, false
+		return 0, adsbAltNone
 	}
-	return FeetToMetres(ft), true
+	return FeetToMetres(ft), adsbAltNumeric
 }
 
 func rawString(raw json.RawMessage) (string, bool) {

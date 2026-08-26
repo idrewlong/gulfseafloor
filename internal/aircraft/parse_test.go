@@ -1,6 +1,8 @@
 package aircraft
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"testing"
 	"time"
@@ -69,6 +71,87 @@ func TestParseAdsbLolGroundAltOmitsAltitude(t *testing.T) {
 	if got.Aircraft[0].OnGround == nil || !*got.Aircraft[0].OnGround {
 		t.Fatal("ground flag")
 	}
+}
+
+func TestParseAdsbLolAltBaroGroundSetsOnGroundWhenGroundBoolAbsent(t *testing.T) {
+	raw := []byte(`{"ac":[{"hex":"abc123","lat":30.41,"lon":-89.08,"alt_baro":"ground"}]}`)
+	got, err := ParseAdsbLol(raw, time.Now().UTC(), tiles.AOI)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Aircraft) != 1 {
+		t.Fatalf("%+v", got.Aircraft)
+	}
+	a := got.Aircraft[0]
+	if a.AltBaroM != nil {
+		t.Fatalf("altitude should be omitted, got %v", *a.AltBaroM)
+	}
+	if a.OnGround == nil || !*a.OnGround {
+		t.Fatalf("onGround %+v", a.OnGround)
+	}
+}
+
+func TestParseAdsbLolNumericAltSetsOnGroundFalseWhenGroundBoolAbsent(t *testing.T) {
+	raw := []byte(`{"ac":[{"hex":"abc123","lat":30.41,"lon":-89.08,"alt_baro":10000}]}`)
+	got, err := ParseAdsbLol(raw, time.Now().UTC(), tiles.AOI)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Aircraft) != 1 {
+		t.Fatalf("%+v", got.Aircraft)
+	}
+	a := got.Aircraft[0]
+	if a.AltBaroM == nil || *a.AltBaroM != 3048 {
+		t.Fatalf("alt %v", a.AltBaroM)
+	}
+	if a.OnGround == nil || *a.OnGround {
+		t.Fatalf("onGround %+v want false", a.OnGround)
+	}
+}
+
+func TestEmptySnapshotMarshalsAircraftArrayNotNull(t *testing.T) {
+	fetchedAt := time.Date(2026, 8, 26, 2, 0, 0, 0, time.UTC)
+	cases := []struct {
+		name string
+		snap Snapshot
+	}{
+		{"opensky missing states", mustParseOpenSky(t, []byte(`{"time":1}`), fetchedAt)},
+		{"opensky null states", mustParseOpenSky(t, []byte(`{"time":1,"states":null}`), fetchedAt)},
+		{"adsb missing ac", mustParseAdsbLol(t, []byte(`{}`), fetchedAt)},
+		{"adsb null ac", mustParseAdsbLol(t, []byte(`{"ac":null}`), fetchedAt)},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			raw, err := json.Marshal(tc.snap)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Contains(raw, []byte(`"aircraft":[]`)) {
+				t.Fatalf("want aircraft:[], got %s", raw)
+			}
+			if bytes.Contains(raw, []byte(`"aircraft":null`)) {
+				t.Fatalf("nil aircraft slice marshaled as null: %s", raw)
+			}
+		})
+	}
+}
+
+func mustParseOpenSky(t *testing.T, raw []byte, fetchedAt time.Time) Snapshot {
+	t.Helper()
+	snap, err := ParseOpenSky(raw, fetchedAt, tiles.AOI)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return snap
+}
+
+func mustParseAdsbLol(t *testing.T, raw []byte, fetchedAt time.Time) Snapshot {
+	t.Helper()
+	snap, err := ParseAdsbLol(raw, fetchedAt, tiles.AOI)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return snap
 }
 
 func TestClipAndCapSortsAndTruncates(t *testing.T) {
