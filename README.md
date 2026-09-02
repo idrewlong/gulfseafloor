@@ -252,9 +252,10 @@ guidance, seeker, or RCS model, and it is not a navigation product.
 ## 7. Known limitations
 
 - **Synthetic seed tiles, not NOAA.** `cmd/tiler synth` writes a procedural
-  Mississippi Bight shelf (coastal ~0 m, mid-shelf ~−80 m, a canyon-like
-  drop in the southwest). Depths are invented. They must not be labelled
-  or demoed as National Bathymetric Source.
+  Mississippi Bight shelf (Sound a few metres, NDBC 42354 ~20 m, pine coast
+  a few metres above the berm, Pontchartrain bowl near sea level). Depths
+  are invented. They must not be labelled or demoed as National Bathymetric
+  Source.
 - **No NOAA bytes on disk.** The five NODD buckets have not been listed
   from this repo's documented retrieval process; no GeoTIFF, HDF5, or CSV
   from those buckets is vendored.

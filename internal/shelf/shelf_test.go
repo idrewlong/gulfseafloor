@@ -19,6 +19,33 @@ func TestNewOrleansIsLand(t *testing.T) {
 	}
 }
 
+// The pine-ridge formula measured 22 km to the Gulf and stacked New Orleans
+// at +11 m. The city sits in the Pontchartrain bowl, about a metre above
+// (and in places below) the waterline.
+func TestNewOrleansSitsNearSeaLevel(t *testing.T) {
+	elev := Sample(-90.08, 29.96)
+	if elev < 0.2 || elev > 3.0 {
+		t.Fatalf("New Orleans should sit near sea level, got %g", elev)
+	}
+}
+
+func TestLouisianaDeltaIsNotAPinePlateau(t *testing.T) {
+	for name, p := range map[string][2]float64{
+		"Metairie":  {-90.16, 30.00},
+		"Chalmette": {-89.97, 29.94},
+		"Slidell":   {-89.78, 30.28},
+	} {
+		elev := Sample(p[0], p[1])
+		if elev < 0 {
+			t.Errorf("%s should be land, got %g", name, elev)
+			continue
+		}
+		if elev > 4.0 {
+			t.Errorf("%s is delta / Pontchartrain basin, not a +11 m pine plateau, got %g", name, elev)
+		}
+	}
+}
+
 func TestOrangeBeachIsLand(t *testing.T) {
 	if elev := Sample(-87.57, 30.34); elev < 0 {
 		t.Fatalf("Orange Beach should be land, got %g", elev)
@@ -96,19 +123,22 @@ func TestSoundShallowerThanOpenGulf(t *testing.T) {
 	}
 }
 
-// The chart now runs south to 42354. The old 26 km / −40 m ramp finished just
-// south of the islands, so the added water was a flat plate.
+// NDBC lists 42354 at 20 m. A latitude ramp to −80 m made the open bight
+// look like a canyon and the hover readout disagree with the buoy.
 func TestOpenGulfDeepensToward42354(t *testing.T) {
 	near := Sample(-88.75, 30.02)
 	far := Sample(-88.643, 29.579)
 	if near >= 0 {
 		t.Fatalf("inner shelf south of the islands should be water, got %g", near)
 	}
-	if far >= near-20 {
-		t.Fatalf("42354 (%g) should sit well below the inner shelf (%g)", far, near)
+	if near < -28 || near > -8 {
+		t.Fatalf("inner shelf south of the islands should be ~10–20 m, got %g", near)
 	}
-	if far > -60 || far < -90 {
-		t.Fatalf("42354 should be mid-shelf (~−80 m), got %g", far)
+	if far >= near {
+		t.Fatalf("42354 (%g) should be deeper than the inner shelf (%g)", far, near)
+	}
+	if far > -16 || far < -28 {
+		t.Fatalf("42354 water depth is 20 m, got %g", far)
 	}
 }
 
@@ -150,6 +180,13 @@ func TestCatIslandIsLand(t *testing.T) {
 func TestHornIslandIsLand(t *testing.T) {
 	if elev := Sample(-88.67, 30.238); elev < 0 {
 		t.Fatalf("Horn Island should be land, got %g", elev)
+	}
+}
+
+func TestHornIslandHasADuneRidge(t *testing.T) {
+	elev := Sample(-88.67, 30.238)
+	if elev < 2.0 || elev > 6.5 {
+		t.Fatalf("Horn Island interior should be a dune ridge, got %g", elev)
 	}
 }
 

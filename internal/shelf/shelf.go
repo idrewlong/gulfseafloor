@@ -168,8 +168,9 @@ func Sample(lon, lat float64) float64 {
 	for _, isl := range f.islands {
 		if isl.contains(lon, lat) {
 			inland := f.islandShore.nearest(lon, lat)
-			// Barrier dunes: Horn and Petit Bois ridges run well above the berm.
-			h := 0.5 + 5.6*smoothstep(0, 320, inland)
+			// These islands are a few hundred metres wide, so the ridge has to
+			// rise inside ~100 m or the interior stays a wet berm.
+			h := 1.2 + 3.6*smoothstep(0, 140, inland)
 			if h > 6.4 {
 				h = 6.4
 			}
@@ -193,18 +194,14 @@ func Sample(lon, lat float64) float64 {
 		// would also measure to the synthetic edges that close it, which made
 		// the plain fall back to sea level at the top of the map.
 		inland := f.coast.nearest(lon, lat)
-		// Berm at the waterline, then a coastal ridge within a few hundred
-		// metres so harbor-cut towns (Gulfport) sit in the scrub band instead
-		// of reading as wet sand.
-		h := 1.4 + 4.2*smoothstep(0, 400, inland) + 5.0*smoothstep(400, 9_000, inland)
-		h += 1.6 * (2*fbm(lon*23, lat*27, 4) - 1) * smoothstep(600, 5_000, inland)
-		if h < 0.6 {
-			h = 0.6 // ridge troughs must not drown the plain
-		}
+		h := mainlandHeight(lon, lat, inland)
 		// Valleys lower the plain but never breach it: the tidal reach that is
 		// genuinely water is already outside the ring.
 		valley := 1 - smoothstep(60, 900, f.rivers.nearest(lon, lat))
 		h -= 0.62 * h * valley
+		if h < 0.3 {
+			h = 0.3
+		}
 		if h > 12 {
 			h = 12
 		}
@@ -215,32 +212,23 @@ func Sample(lon, lat float64) float64 {
 	coastDist := f.coast.nearest(lon, lat)
 	islandDist := f.islandShore.nearest(lon, lat)
 	shore := math.Min(coastDist, islandDist)
-	lagoon := inBay || westernLagoon(lon, lat)
 
-	// Sound and bay floors deepen away from their shorelines. A single flat
-	// value reads as a plate once the view is exaggerated. Distance runs to the
-	// nearest shore of any kind, so water tucked behind a barrier island stays
-	// shallow instead of taking the depth of open water the same distance from
-	// the mainland.
-	depth := -2.6 - 2.4*smoothstep(0, 9_000, shore)
-	if lagoon {
-		depth = -1.6 - 1.6*smoothstep(0, 3_000, shore)
+	sound := -2.6 - 2.4*smoothstep(0, 9_000, shore)
+	lagoon := -1.6 - 1.6*smoothstep(0, 3_000, shore)
+	lw := lagoonWeight(lon, lat)
+	if inBay {
+		lw = 1
 	}
+	depth := sound*(1-lw) + lagoon*lw
 
-	// Open shelf: south of the barrier chain, or the Alabama gulf east of
-	// Dauphin — not Borgne / Breton / Chandeleur Sound.
-	if !lagoon && (lon > -88.05 || lat < 30.16) {
-		inner := -7.5 - 30*smoothstep(0, 26_000, shore)
-		outerT := 1 - smoothstep(29.50, 30.02, lat)
-		along := 6 * (2*fbm(lon*14, lat*17, 3) - 1) * outerT
-		shelf := inner - 48*outerT + along
-		if lon > -88.05 {
-			depth = shelf
-		} else {
-			offshore := 1 - smoothstep(30.150, 30.215, lat)
-			depth = depth*(1-offshore) + shelf*offshore
-		}
-	}
+	// Open shelf south of the barrier chain, and the Alabama gulf east of
+	// Dauphin. NDBC 42354 is 20 m — this shelf is wide and shallow.
+	inner := -8.0 - 9*smoothstep(0, 22_000, shore)
+	outerT := 1 - smoothstep(29.50, 30.08, lat)
+	along := 1.8 * (2*fbm(lon*14, lat*17, 3) - 1) * outerT
+	shelf := inner - 4*outerT + along
+	sw := shelfWeight(lon, lat) * (1 - lw)
+	depth = depth*(1-sw) + shelf*sw
 
 	// Surf zone only. A 1.4 km / +2.2 m shoal pinned the Sound to the −0.4 m
 	// clamp and painted the Mississippi beaches as a sand plate.
@@ -259,31 +247,62 @@ func Sample(lon, lat float64) float64 {
 	if depth > -0.4 {
 		depth = -0.4
 	}
-	if depth < -90 {
-		depth = -90
+	if depth < -40 {
+		depth = -40
 	}
 	return depth
 }
 
-// westernLagoon is Lake Borgne and the Breton/Chandeleur lagoons. It is not
-// Mississippi Sound (north of the barrier chain) and not the open bight south
-// of Cat and Ship Islands — those must take the same shelf as south of Horn.
-func westernLagoon(lon, lat float64) bool {
-	if lon >= -88.85 {
-		return false
+// mainlandHeight is metres above the waterline. The MS/AL pine coast rises
+// off the berm; the Pontchartrain bowl stays low. The two are mixed across
+// the Pearl so the chart does not grow a vertical colour seam.
+func mainlandHeight(lon, lat, inland float64) float64 {
+	delta := 0.5 + 1.6*smoothstep(0, 2_200, inland)
+	delta += 0.35 * (2*fbm(lon*23, lat*27, 4) - 1) * smoothstep(200, 2_000, inland)
+	if delta < 0.3 {
+		delta = 0.3
 	}
-	if lat >= 30.12 {
-		return false
+	if delta > 2.6 {
+		delta = 2.6
 	}
-	if lat <= 29.70 {
-		return false
+	pine := 1.4 + 4.2*smoothstep(0, 400, inland) + 5.0*smoothstep(400, 9_000, inland)
+	pine += 1.6 * (2*fbm(lon*23, lat*27, 4) - 1) * smoothstep(600, 5_000, inland)
+	if pine < 0.6 {
+		pine = 0.6
 	}
-	// Open bight immediately south of Cat and Ship — not Lake Borgne, not the
-	// water east of New Orleans, and not Chandeleur Sound.
-	if lat >= 30.02 && lat < 30.12 && lon > -89.20 && lon < -88.85 {
-		return false
+	w := smoothstep(-89.70, -89.36, lon)
+	return delta*(1-w) + pine*w
+}
+
+// lagoonWeight is 1 over Borgne / Breton / Chandeleur and 0 in the Sound
+// and the open bight south of Cat and Ship. Edges fade so they do not
+// render as a rectangular tile of the wrong depth.
+func lagoonWeight(lon, lat float64) float64 {
+	e := 1 - smoothstep(-88.95, -88.72, lon)
+	n := 1 - smoothstep(30.02, 30.16, lat)
+	s := smoothstep(29.68, 29.82, lat)
+	bx := smoothstep(-89.32, -89.12, lon) * (1 - smoothstep(-88.95, -88.78, lon))
+	by := smoothstep(29.98, 30.06, lat) * (1 - smoothstep(30.12, 30.18, lat))
+	w := e * n * s * (1 - 0.92*bx*by)
+	if w < 0 {
+		w = 0
 	}
-	return true
+	if w > 1 {
+		w = 1
+	}
+	return w
+}
+
+// shelfWeight is 1 on the open gulf south of the islands and on the Alabama
+// gulf east of Dauphin. It fades across ~10 km so the Sound does not end on
+// a latitude line.
+func shelfWeight(lon, lat float64) float64 {
+	south := 1 - smoothstep(30.12, 30.22, lat)
+	alabama := smoothstep(-88.20, -87.92, lon) * (1 - smoothstep(30.30, 30.40, lat))
+	if alabama > south {
+		return alabama
+	}
+	return south
 }
 
 func smoothstep(edge0, edge1, x float64) float64 {

@@ -18,7 +18,7 @@ function smoothstep(edge0: number, edge1: number, x: number): number {
 }
 
 /** Unlit terrain.frag.glsl `base` colour at elevation metres (WGS84 up). */
-export function unlitBaseColor(elev: number, depthMin = -80): [number, number, number] {
+export function unlitBaseColor(elev: number, depthMin = -30): [number, number, number] {
   const depth = Math.max(-elev, 0);
   const land = smoothstep(-0.25, 0.45, elev);
 
@@ -52,7 +52,7 @@ function cssRgb(color: readonly number[]): string {
 }
 
 /** Vertical CSS ramp: `min` metres at the bottom, `max` at the top. */
-export function legendGradientCss(min: number, max: number, depthMin = -80): string {
+export function legendGradientCss(min: number, max: number, depthMin = -30): string {
   const steps = 20;
   const stops: string[] = [];
   for (let i = 0; i <= steps; i++) {

@@ -61,10 +61,10 @@ export const BARRIER_ISLANDS: readonly (readonly LonLat[])[] = (
 });
 
 export const PLACES: readonly Place[] = [
-  { name: 'Louisiana', lon: -89.85, lat: 30.35, elev: 6, kind: 'state' },
+  { name: 'Louisiana', lon: -89.85, lat: 30.35, elev: 2, kind: 'state' },
   { name: 'Mississippi', lon: -89.02, lat: 30.485, elev: 8, kind: 'state' },
   { name: 'Alabama', lon: -87.72, lat: 30.50, elev: 6, kind: 'state' },
-  { name: 'New Orleans', lon: -90.07, lat: 29.96, elev: 4, kind: 'city' },
+  { name: 'New Orleans', lon: -90.07, lat: 29.96, elev: 1, kind: 'city' },
   { name: 'Pearlington', lon: -89.603, lat: 30.247, elev: 3, kind: 'city', rank: 2 },
   { name: 'Waveland', lon: -89.377, lat: 30.293, elev: 3, kind: 'city', rank: 2 },
   { name: 'Bay St. Louis', lon: -89.33, lat: 30.31, elev: 3, kind: 'city' },

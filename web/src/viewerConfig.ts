@@ -1,7 +1,7 @@
 export const DEFAULT_EXAGGERATION = 1;
 
-/** Hypsometric window. Synthetic mid-shelf at 42354 is ~−80 m; inland plain caps at +12 m. */
-export const DEFAULT_DEPTH_MIN = -80;
+/** Hypsometric window. NDBC 42354 is 20 m; inland pine-coast caps at +12 m. */
+export const DEFAULT_DEPTH_MIN = -30;
 export const DEFAULT_DEPTH_MAX = 12;
 
 /** Kept as documentation of the old drop; skirt fragments are discarded, not shaded. */

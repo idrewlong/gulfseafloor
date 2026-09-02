@@ -74,6 +74,49 @@ func TestWaterEastOfNewOrleansStaysLagoon(t *testing.T) {
 	}
 }
 
+// A boolean wall at lon −89.52 painted Louisiana as wet sand and Mississippi
+// as pine scrub along a vertical tile-shaped seam through Pearlington.
+func TestLandHasNoLongitudeWallAtThePearl(t *testing.T) {
+	const lat = 30.42
+	prevLon := -89.70
+	prev := Sample(prevLon, lat)
+	for lon := -89.66; lon <= -89.38; lon += 0.02 {
+		got := Sample(lon, lat)
+		if prev > 0 && got > 0 && math.Abs(got-prev) > 2.2 {
+			t.Fatalf("land jumps %.1f m from %.2f (%g) to %.2f (%g)", math.Abs(got-prev), prevLon, prev, lon, got)
+		}
+		prev, prevLon = got, lon
+	}
+}
+
+// westernLagoon and lat < 30.16 were axis-aligned boxes, so the Sound / Borgne /
+// inner shelf met on straight lines that read as miscolored tiles.
+func TestWaterHasNoLatitudeWallSouthOfTheIslands(t *testing.T) {
+	const lon = -88.67
+	prevLat := 30.24
+	prev := Sample(lon, prevLat)
+	for lat := 30.22; lat >= 30.08; lat -= 0.02 {
+		got := Sample(lon, lat)
+		if prev < 0 && got < 0 && math.Abs(got-prev) > 5 {
+			t.Fatalf("water jumps %.1f m from %.2f (%g) to %.2f (%g)", math.Abs(got-prev), prevLat, prev, lat, got)
+		}
+		prev, prevLat = got, lat
+	}
+}
+
+func TestWaterHasNoLongitudeWallAtLagoonEdge(t *testing.T) {
+	const lat = 30.05
+	prevLon := -89.40
+	prev := Sample(prevLon, lat)
+	for lon := -89.35; lon <= -88.70; lon += 0.05 {
+		got := Sample(lon, lat)
+		if prev < 0 && got < 0 && math.Abs(got-prev) > 6 {
+			t.Fatalf("water jumps %.1f m from %.2f (%g) to %.2f (%g)", math.Abs(got-prev), prevLon, prev, lon, got)
+		}
+		prev, prevLon = got, lon
+	}
+}
+
 func TestAOIGridHasNoNodataHoles(t *testing.T) {
 	aoi := tiles.AOI
 	for lat := aoi.South; lat <= aoi.North; lat += 0.04 {

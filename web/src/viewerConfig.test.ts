@@ -16,8 +16,9 @@ describe('viewerConfig', () => {
     assert.equal(DEFAULT_EXAGGERATION, 1);
   });
 
-  it('depth window covers mid-shelf water out to 42354', () => {
-    assert.ok(DEFAULT_DEPTH_MIN <= -80);
+  it('depth window covers the shallow Mississippi Bight out to 42354', () => {
+    assert.ok(DEFAULT_DEPTH_MIN <= -20);
+    assert.ok(DEFAULT_DEPTH_MIN >= -40);
     assert.ok(DEFAULT_DEPTH_MAX >= 12);
   });
 
