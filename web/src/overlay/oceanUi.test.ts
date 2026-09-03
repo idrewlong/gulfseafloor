@@ -4,11 +4,13 @@ import {
   BUOY_RANK,
   availabilityFromHttp,
   buoyReadout,
+  currentsCaption,
   defaultOn,
   formatValidZ,
   oceanCaption,
   unavailableOceanResponse,
 } from './oceanUi.ts';
+import type { VelocityStack } from './currentsField.ts';
 
 describe('BUOY_RANK', () => {
   it('is 10 so places outrank buoys', () => {
@@ -77,6 +79,32 @@ describe('oceanCaption', () => {
   it('omits a side when that valid time is null', () => {
     assert.equal(oceanCaption('2026-08-24T18:00:00Z', null), 'Currents HYCOM 18Z');
     assert.equal(oceanCaption(null, '2026-08-24T19:50:00Z'), 'Buoys NDBC 19:50Z');
+  });
+});
+
+const capT0 = Date.parse('2026-09-03T12:00:00Z');
+const capT1 = Date.parse('2026-09-03T15:00:00Z');
+const capStack: VelocityStack = {
+  nx: 1, ny: 1,
+  bbox: { west: -90, south: 29, east: -87, north: 31 },
+  times: [capT0, capT1],
+  u: [[0], [0]], v: [[0], [0]],
+};
+
+describe('currentsCaption', () => {
+  // Model output must never read as observation.
+  it('names the bracketing forecast hours', () => {
+    const caption = currentsCaption(capStack, capT0 + 80 * 60 * 1000);
+    assert.equal(caption, 'Currents HYCOM 13:20Z · interpolated 12Z→15Z');
+  });
+
+  it('marks a field outside its window as stale', () => {
+    const caption = currentsCaption(capStack, capT1 + 3600_000);
+    assert.match(caption, /· stale$/);
+  });
+
+  it('is empty without a stack', () => {
+    assert.equal(currentsCaption(null, capT0), '');
   });
 });
 

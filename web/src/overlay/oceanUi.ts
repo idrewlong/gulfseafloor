@@ -1,3 +1,5 @@
+import type { VelocityStack } from './currentsField.ts';
+import { bracket, isStale } from './currentsTime.ts';
 import { msToKnots } from './windBarb.ts';
 
 export const BUOY_RANK = 10;
@@ -39,6 +41,29 @@ export function oceanCaption(currentsIso: string | null, buoysIso: string | null
     parts.push(`Buoys NDBC ${formatValidZ(buoysIso)}`);
   }
   return parts.join(' · ');
+}
+
+/**
+ * Names the bracketing forecast hours, because the displayed field is model
+ * output interpolated to now — not an observation. Shortening this to a bare
+ * timestamp would misrepresent the data.
+ */
+export function currentsCaption(stack: VelocityStack | null, nowMs: number): string {
+  if (stack == null || stack.times.length === 0) {
+    return '';
+  }
+  const { i0, i1 } = bracket(stack.times, nowMs);
+  const at = formatValidZ(new Date(nowMs).toISOString());
+  let caption = `Currents HYCOM ${at}`;
+  if (i0 !== i1) {
+    const from = formatValidZ(new Date(stack.times[i0]!).toISOString());
+    const to = formatValidZ(new Date(stack.times[i1]!).toISOString());
+    caption += ` · interpolated ${from}→${to}`;
+  }
+  if (isStale(stack, nowMs)) {
+    caption += ' · stale';
+  }
+  return caption;
 }
 
 export function buoyReadout(st: {
