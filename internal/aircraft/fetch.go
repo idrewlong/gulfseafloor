@@ -90,16 +90,15 @@ func NewClient() *http.Client {
 	}
 }
 
+// Fetch returns the first feed that answers, adsb.lol first.
+//
+// The order is a rate-limit decision, not a data-quality one — over this AOI
+// the two agree on the large majority of contacts. Anonymous OpenSky allows
+// 400 API credits a day per IP, and the viewer polls every 10 s while the
+// layer is on, which is 8,640 requests a day: OpenSky alone goes dark partway
+// through the first session and stays dark. adsb.lol has no such ceiling, so
+// it carries the session and OpenSky is held in reserve for when it fails.
 func Fetch(ctx context.Context, client *http.Client, ep Endpoints, clip tiles.BBox, now time.Time) (Snapshot, error) {
-	openSkyRaw, openSkyErr := getCapped(ctx, client, OpenSkyURL(ep.OpenSky, clip))
-	if openSkyErr == nil {
-		snapshot, err := ParseOpenSky(openSkyRaw, now, clip)
-		if err == nil {
-			return snapshot, nil
-		}
-		openSkyErr = err
-	}
-
 	adsbLolRaw, adsbLolErr := getCapped(ctx, client, AdsbLolURL(ep.AdsbLol, clip))
 	if adsbLolErr == nil {
 		snapshot, err := ParseAdsbLol(adsbLolRaw, now, clip)
@@ -109,7 +108,16 @@ func Fetch(ctx context.Context, client *http.Client, ep Endpoints, clip tiles.BB
 		adsbLolErr = err
 	}
 
-	return Snapshot{}, fmt.Errorf("aircraft: fetch failed: opensky: %v; adsb.lol: %w", openSkyErr, adsbLolErr)
+	openSkyRaw, openSkyErr := getCapped(ctx, client, OpenSkyURL(ep.OpenSky, clip))
+	if openSkyErr == nil {
+		snapshot, err := ParseOpenSky(openSkyRaw, now, clip)
+		if err == nil {
+			return snapshot, nil
+		}
+		openSkyErr = err
+	}
+
+	return Snapshot{}, fmt.Errorf("aircraft: fetch failed: adsb.lol: %v; opensky: %w", adsbLolErr, openSkyErr)
 }
 
 func getCapped(ctx context.Context, client *http.Client, endpoint string) ([]byte, error) {

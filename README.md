@@ -101,7 +101,7 @@ table, the allowed/not-allowed boundary, and the empty retrieval-date column.
 │    /api/ocean/manifest       ocean snapshot inventory (404 until    │
 │    /api/ocean/currents       `make ocean`; snapshot, air-gap safe)  │
 │    /api/ocean/buoys                                                 │
-│    /api/aircraft             live ADS-B (OpenSky; not a snapshot;   │
+│    /api/aircraft             live ADS-B (adsb.lol; not a snapshot;  │
 │                              404 if GULF_AIRCRAFT=0)                │
 │    embedded static assets (single binary, no CDN)                   │
 └──────────────────┬──────────────────────────────────────────────────┘
@@ -143,7 +143,7 @@ overlay have no outbound calls at serve time. Seed tiles travel with the
 binary (local) or inside a Zarf tarball (cluster). `GET /api/ocean/manifest`,
 `/api/ocean/currents`, and `/api/ocean/buoys` serve the last snapshot from
 `data/ocean/` (404 until `HYCOM_NCSS=https://ncss.hycom.org/thredds/ncss/grid/GLBy0.08/latest make ocean`). `GET /api/aircraft` is the live
-exception: the server polls OpenSky (adsb.lol fallback) only while a client
+exception: the server polls adsb.lol (OpenSky in reserve) only while a client
 asks. `GULF_AIRCRAFT=0` returns 404 so an air-gap still serves terrain and
 ocean. GDAL, SNS, S3, HYCOM, and NDBC exist only on ingest, which is not
 required to view already-built tiles.

@@ -19,38 +19,23 @@ func TestCoverRadiusCoversAOI(t *testing.T) {
 	}
 }
 
-func TestFetchUsesOpenSkyWhenOK(t *testing.T) {
-	var hits []string
-	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		hits = append(hits, r.URL.Path)
-		if r.Header.Get("User-Agent") != UserAgent {
-			t.Errorf("ua %q", r.Header.Get("User-Agent"))
-		}
-		if !strings.Contains(r.URL.RawQuery, "lamin=") {
-			t.Errorf("query %s", r.URL.RawQuery)
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, `{"time":1,"states":[["abc123","DAL123  ",null,1,1,-89.08,30.41,1000,false,80,180,0,null,1000,null,false,0]]}`)
-	}))
-	t.Cleanup(up.Close)
-	got, err := Fetch(context.Background(), NewClient(), Endpoints{OpenSky: up.URL + "/states/all", AdsbLol: "http://127.0.0.1:1"}, tiles.AOI, time.Now().UTC())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.Source != SourceOpenSky || len(got.Aircraft) != 1 {
-		t.Fatalf("%+v", got)
-	}
-	if len(hits) != 1 {
-		t.Fatalf("hits %v", hits)
-	}
-}
-
-func TestFetchFallsBackOnOpenSky429(t *testing.T) {
+// adsb.lol is the primary feed: it has no daily credit ceiling, so it can
+// carry a 10 s poll for a whole session. OpenSky must not even be contacted
+// while adsb.lol answers — anonymous OpenSky allows 400 credits a day and a
+// full session would burn that in well under an hour.
+func TestFetchUsesAdsbLolWhenOKAndDoesNotTouchOpenSky(t *testing.T) {
+	var lolHits, skyHits int
 	sky := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusTooManyRequests)
+		skyHits++
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"time":1,"states":[]}`)
 	}))
 	t.Cleanup(sky.Close)
 	lol := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		lolHits++
+		if r.Header.Get("User-Agent") != UserAgent {
+			t.Errorf("ua %q", r.Header.Get("User-Agent"))
+		}
 		if !strings.Contains(r.URL.Path, "/v2/lat/") {
 			t.Errorf("path %s", r.URL.Path)
 		}
@@ -62,8 +47,36 @@ func TestFetchFallsBackOnOpenSky429(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Source != SourceAdsbLol {
-		t.Fatalf("source %s", got.Source)
+	if got.Source != SourceAdsbLol || len(got.Aircraft) != 1 {
+		t.Fatalf("%+v", got)
+	}
+	if lolHits != 1 {
+		t.Fatalf("adsb.lol hits %d, want 1", lolHits)
+	}
+	if skyHits != 0 {
+		t.Fatalf("OpenSky was polled %d times while adsb.lol was healthy", skyHits)
+	}
+}
+
+func TestFetchFallsBackToOpenSkyWhenAdsbLolFails(t *testing.T) {
+	lol := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+	}))
+	t.Cleanup(lol.Close)
+	sky := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.URL.RawQuery, "lamin=") {
+			t.Errorf("query %s", r.URL.RawQuery)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"time":1,"states":[["abc123","DAL123  ",null,1,1,-89.08,30.41,1000,false,80,180,0,null,1000,null,false,0]]}`)
+	}))
+	t.Cleanup(sky.Close)
+	got, err := Fetch(context.Background(), NewClient(), Endpoints{OpenSky: sky.URL + "/states/all", AdsbLol: lol.URL}, tiles.AOI, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Source != SourceOpenSky || len(got.Aircraft) != 1 {
+		t.Fatalf("%+v", got)
 	}
 }
 
@@ -87,15 +100,19 @@ func TestFetchDoesNotFollowOffHostRedirect(t *testing.T) {
 		w.WriteHeader(http.StatusTeapot)
 	}))
 	t.Cleanup(evil.Close)
-	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	redirecting := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, evil.URL+"/secret", http.StatusFound)
 	}))
-	t.Cleanup(up.Close)
-	lol := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	t.Cleanup(redirecting.Close)
+	dead := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadGateway)
 	}))
-	t.Cleanup(lol.Close)
-	if _, err := Fetch(context.Background(), NewClient(), Endpoints{OpenSky: up.URL, AdsbLol: lol.URL}, tiles.AOI, time.Now().UTC()); err == nil {
-		t.Fatal("redirect must not parse as success")
+	t.Cleanup(dead.Close)
+	// Both legs must refuse the off-host hop, so aim it at each in turn.
+	if _, err := Fetch(context.Background(), NewClient(), Endpoints{OpenSky: dead.URL, AdsbLol: redirecting.URL}, tiles.AOI, time.Now().UTC()); err == nil {
+		t.Fatal("adsb.lol redirect must not parse as success")
+	}
+	if _, err := Fetch(context.Background(), NewClient(), Endpoints{OpenSky: redirecting.URL, AdsbLol: dead.URL}, tiles.AOI, time.Now().UTC()); err == nil {
+		t.Fatal("OpenSky redirect must not parse as success")
 	}
 }

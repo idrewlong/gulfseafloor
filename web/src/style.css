@@ -617,6 +617,32 @@ body {
   text-transform: uppercase;
 }
 
+/* Altitude leaders, under the marks so a line never crosses a glyph. */
+.aircraft-leaders {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.aircraft-leader {
+  stroke: var(--land);
+  stroke-width: 1;
+  opacity: 0.5;
+}
+
+.aircraft-foot {
+  fill: none;
+  stroke: var(--land);
+  stroke-width: 1.5;
+  opacity: 0.7;
+}
+
+/* The mark box is the glyph. The callsign hangs off it so that centring the
+   button on the projected point centres the aircraft, not the glyph-plus-text
+   stack — the leader has to land on the aircraft. */
 .aircraft-mark {
   position: absolute;
   left: 0;
@@ -624,12 +650,13 @@ body {
   margin: 0;
   padding: 0;
   border: 0;
+  width: 18px;
+  height: 18px;
   background: transparent;
   color: var(--land);
   cursor: pointer;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
+  display: grid;
+  place-items: center;
   transform: translate(-50%, -50%);
   text-shadow: 0 1px 0 #071018, 0 0 8px #071018;
 }
@@ -639,29 +666,57 @@ body {
   outline-offset: 2px;
 }
 
+/* Planform silhouette, rotated about its own centre to the ADS-B track. */
 .aircraft-glyph {
   display: block;
-  width: 0;
-  height: 0;
-  border-left: 5px solid transparent;
-  border-right: 5px solid transparent;
-  border-bottom: 10px solid var(--land);
-  transform-origin: 50% 70%;
+  width: 18px;
+  height: 18px;
+  transform-origin: 50% 50%;
+  filter: drop-shadow(0 1px 1px #071018);
 }
 
-.aircraft-mark.is-square .aircraft-glyph {
-  width: 8px;
-  height: 8px;
-  border: 0;
-  background: var(--land);
-  transform: none;
+.aircraft-plane {
+  fill: var(--land);
+}
+
+.aircraft-dot {
+  display: none;
+  fill: var(--land);
+}
+
+.aircraft-mark.is-trackless .aircraft-plane {
+  display: none;
+}
+
+.aircraft-mark.is-trackless .aircraft-dot {
+  display: block;
+}
+
+.aircraft-mark:hover .aircraft-plane,
+.aircraft-mark:focus-visible .aircraft-plane,
+.aircraft-mark:hover .aircraft-dot,
+.aircraft-mark:focus-visible .aircraft-dot {
+  fill: var(--paper);
 }
 
 .aircraft-id {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  display: none;
+  white-space: nowrap;
   font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+/* Crowding thins the callsigns; it never removes an aircraft from the chart. */
+.aircraft-mark.is-labelled .aircraft-id,
+.aircraft-mark:hover .aircraft-id,
+.aircraft-mark:focus-visible .aircraft-id {
+  display: block;
 }
 
 .geo-label {

@@ -56,6 +56,15 @@ import { mountLocator } from './ui/locator';
 const DEFAULT_CONTOUR_INTERVAL = 10;
 
 /**
+ * Aircraft are drawn at true altitude — metres above sea level, 1:1 with the
+ * chart's horizontal scale. The exaggeration slider deliberately does not
+ * reach them: at 50x a 45,000 ft airliner would sit 685 km up, outside the
+ * far plane, and a 600 ft helicopter would fly at 9 km. The seafloor is what
+ * gets stretched; the sky stays honest.
+ */
+const AIRCRAFT_ALTITUDE_SCALE = 1;
+
+/**
  * The intro zooms out to the covering distance from a little closer in. It
  * never starts further out than that: the chart has to fill the frame the
  * whole way, or the opening shot shows its edges.
@@ -671,6 +680,7 @@ async function start(): Promise<void> {
     camera.aspect = w / Math.max(1, h);
     camera.updateProjectionMatrix();
     coverDist = chartCover(camera, canvas, extent);
+    aircraftHandle?.resize(w, h);
     if (framed) {
       controls.maxDistance = coverDist;
     }
@@ -680,6 +690,7 @@ async function start(): Promise<void> {
 
   const clock = new THREE.Clock();
   const overlayScratch = new THREE.Vector3();
+  const aircraftScratch = new THREE.Vector3();
   const tick = (): void => {
     requestAnimationFrame(tick);
     camera.up.set(0, 0, 1);
@@ -717,7 +728,16 @@ async function start(): Promise<void> {
       if (oceanOn.buoys && buoysHandle) {
         extra.push(...buoysHandle.candidates(overlayProject, w, h));
       }
-      aircraftHandle.layout(overlayProject, w, h, extra);
+      // Its own projection: true altitude, and no lift off the seabed.
+      const aircraftProject = screenProject(
+        camera,
+        AIRCRAFT_ALTITUDE_SCALE,
+        w,
+        h,
+        aircraftScratch,
+        0,
+      );
+      aircraftHandle.layout(aircraftProject, w, h, extra);
     }
 
     currentsHandle?.tick(clock.getDelta());

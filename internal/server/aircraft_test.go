@@ -42,16 +42,16 @@ func TestAircraftDisabledIs404(t *testing.T) {
 	}
 }
 
-func TestAircraftServesOpenSkyAndCaches(t *testing.T) {
+func TestAircraftServesPrimaryFeedAndCaches(t *testing.T) {
 	var n atomic.Int32
 	now := time.Date(2026, 8, 26, 2, 0, 0, 0, time.UTC)
 	clock := func() time.Time { return now }
 	h := aircraftHandler(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Error("OpenSky reserve should not run while adsb.lol answers")
+	}, func(w http.ResponseWriter, r *http.Request) {
 		n.Add(1)
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, `{"time":1,"states":[["abc123","DAL123  ",null,1,1,-89.08,30.41,1000,false,80,180,0,null,1000,null,false,0]]}`)
-	}, func(w http.ResponseWriter, r *http.Request) {
-		t.Error("fallback should not run")
+		_, _ = io.WriteString(w, `{"ac":[{"hex":"abc123","flight":"DAL123  ","lat":30.41,"lon":-89.08,"alt_baro":3000,"gs":155,"track":180,"ground":false}]}`)
 	}, clock)
 	for i := 0; i < 2; i++ {
 		rec := httptest.NewRecorder()
@@ -66,7 +66,7 @@ func TestAircraftServesOpenSkyAndCaches(t *testing.T) {
 		if err := json.Unmarshal(rec.Body.Bytes(), &snap); err != nil {
 			t.Fatal(err)
 		}
-		if snap.Source != aircraft.SourceOpenSky || len(snap.Aircraft) != 1 {
+		if snap.Source != aircraft.SourceAdsbLol || len(snap.Aircraft) != 1 {
 			t.Fatalf("%+v", snap)
 		}
 	}
@@ -162,13 +162,13 @@ func TestAircraftSingleflightCoalesces(t *testing.T) {
 	defer releaseUpstream()
 	var n atomic.Int32
 	base := aircraftHandler(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Error("OpenSky reserve should not run while adsb.lol answers")
+	}, func(w http.ResponseWriter, r *http.Request) {
 		n.Add(1)
 		started <- struct{}{}
 		<-release
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, `{"time":1,"states":[["abc123","X",null,1,1,-89.08,30.41,1,false,1,1,0,null,1,null,false,0]]}`)
-	}, func(w http.ResponseWriter, r *http.Request) {
-		t.Error("fallback should not run")
+		_, _ = io.WriteString(w, `{"ac":[{"hex":"abc123","flight":"X","lat":30.41,"lon":-89.08,"gs":1,"track":1,"ground":false}]}`)
 	}, time.Now)
 	var entered sync.WaitGroup
 	entered.Add(2)
@@ -229,6 +229,8 @@ func TestAircraftSingleflightFetchSurvivesFirstCallerCancellation(t *testing.T) 
 	defer releaseUpstream()
 	upstreamCanceled := make(chan struct{})
 	base := aircraftHandler(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Error("OpenSky reserve should not run while adsb.lol answers")
+	}, func(w http.ResponseWriter, r *http.Request) {
 		close(started)
 		select {
 		case <-r.Context().Done():
@@ -237,9 +239,7 @@ func TestAircraftSingleflightFetchSurvivesFirstCallerCancellation(t *testing.T) 
 		case <-release:
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, `{"time":1,"states":[["abc123","X",null,1,1,-89.08,30.41,1,false,1,1,0,null,1,null,false,0]]}`)
-	}, func(w http.ResponseWriter, r *http.Request) {
-		t.Error("fallback should not run")
+		_, _ = io.WriteString(w, `{"ac":[{"hex":"abc123","flight":"X","lat":30.41,"lon":-89.08,"gs":1,"track":1,"ground":false}]}`)
 	}, time.Now)
 
 	var entered sync.WaitGroup

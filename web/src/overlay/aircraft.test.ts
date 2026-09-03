@@ -3,6 +3,7 @@ import { describe, it } from 'node:test';
 import { AOI } from '../geo.ts';
 import { type LabelCandidate } from '../ui/labelLayout.ts';
 import {
+  AIRCRAFT_EDGE_PAD_DEG,
   AIRCRAFT_ID_BASE,
   layoutAircraftVisibility,
   parseAircraftJson,
@@ -81,17 +82,50 @@ describe('parseAircraftJson', () => {
 });
 
 describe('layoutAircraftVisibility', () => {
-  const project = (lon: number, lat: number): { x: number; y: number } => ({ x: lon, y: lat });
+  /** Ground plane at elev 0; altitude lifts the mark up-screen one pixel per 100 m. */
+  const project = (lon: number, lat: number, elev: number): { x: number; y: number } => ({
+    x: lon,
+    y: lat - elev / 100,
+  });
 
-  it('yields to a place or buoy at the same pixel', () => {
+  it('draws every on-screen aircraft, and declutters only the callsigns', () => {
+    const rows = [
+      { icao24: 'aaa111', lon: 100, lat: 10 },
+      { icao24: 'bbb222', lon: 104, lat: 10 },
+    ];
+    const { labelled, placements } = layoutAircraftVisibility([], rows, project, 800, 400);
+    // Four pixels apart: the two callsigns cannot both be drawn...
+    assert.equal(labelled.size, 1);
+    // ...but neither aircraft may be dropped from the chart for it.
+    assert.ok(placements[0]?.air);
+    assert.ok(placements[1]?.air);
+  });
+
+  it('keeps the mark when a place or buoy label wins the same pixel', () => {
     const rows = [{ icao24: 'abc123', lon: 100, lat: 10 }];
     const place = [{ id: 0, x: 100, y: 10, rank: 1 }];
-    const { visible } = layoutAircraftVisibility(place, rows, project, 800, 400);
-    assert.equal(visible.has(AIRCRAFT_ID_BASE), false);
+    const { labelled, placements } = layoutAircraftVisibility(place, rows, project, 800, 400);
+    assert.equal(labelled.has(AIRCRAFT_ID_BASE), false);
+    assert.ok(placements[0]?.air);
 
     const buoy = [{ id: 1000, x: 100, y: 10, rank: BUOY_RANK }];
     const again = layoutAircraftVisibility(buoy, rows, project, 800, 400);
-    assert.equal(again.visible.has(AIRCRAFT_ID_BASE), false);
+    assert.equal(again.labelled.has(AIRCRAFT_ID_BASE), false);
+    assert.ok(again.placements[0]?.air);
+  });
+
+  it('lifts the mark to its altitude and foots the leader at sea level', () => {
+    const rows = [{ icao24: 'abc123', lon: 100, lat: 300, altBaroM: 10_000 }];
+    const { placements } = layoutAircraftVisibility([], rows, project, 800, 400);
+    assert.deepEqual(placements[0]?.air, { x: 100, y: 200 });
+    assert.deepEqual(placements[0]?.ground, { x: 100, y: 300 });
+  });
+
+  it('foots the leader under an aircraft reporting no altitude', () => {
+    const rows = [{ icao24: 'abc123', lon: 100, lat: 300 }];
+    const { placements } = layoutAircraftVisibility([], rows, project, 800, 400);
+    assert.deepEqual(placements[0]?.air, { x: 100, y: 300 });
+    assert.deepEqual(placements[0]?.ground, { x: 100, y: 300 });
   });
 
   it('uses AIRCRAFT_RANK 20', () => {
@@ -104,14 +138,14 @@ describe('layoutAircraftVisibility', () => {
   it('merges extra candidates before resolving occupancy', () => {
     const extra: LabelCandidate[] = [{ id: 7, x: 100, y: 10, rank: 1 }];
     const rows = [{ icao24: 'abc123', lon: 100, lat: 10 }];
-    const { candidates, visible } = layoutAircraftVisibility(extra, rows, project, 800, 400);
+    const { candidates, labelled } = layoutAircraftVisibility(extra, rows, project, 800, 400);
     assert.deepEqual(candidates.map((candidate) => candidate.id), [7, AIRCRAFT_ID_BASE]);
-    assert.deepEqual([...visible], [7]);
+    assert.deepEqual([...labelled], [7]);
   });
 
-  it('skips aircraft outside the AOI', () => {
+  it('drops aircraft well outside the chart', () => {
     const rows = [{ icao24: 'abc123', lon: 100, lat: 10 }];
-    const { visible, candidates, positions } = layoutAircraftVisibility(
+    const { labelled, candidates, placements } = layoutAircraftVisibility(
       [],
       rows,
       project,
@@ -119,9 +153,25 @@ describe('layoutAircraftVisibility', () => {
       400,
       AOI,
     );
-    assert.equal(visible.has(AIRCRAFT_ID_BASE), false);
+    assert.equal(labelled.has(AIRCRAFT_ID_BASE), false);
     assert.deepEqual(candidates, []);
-    assert.deepEqual(positions, [null]);
+    assert.deepEqual(placements, [{ air: null, ground: null }]);
+  });
+
+  it('holds a mark just past the chart edge so dead reckoning does not blink it', () => {
+    // Projected straight through so the pad, not the viewport, decides.
+    const flat = (lon: number, lat: number): { x: number; y: number } => ({
+      x: 400 + lon,
+      y: 200 + lat,
+    });
+    const justOutside = [{ icao24: 'abc123', lon: AOI.east + AIRCRAFT_EDGE_PAD_DEG / 2, lat: 30 }];
+    assert.ok(layoutAircraftVisibility([], justOutside, flat, 800, 400, AOI).placements[0]?.air);
+
+    const farOutside = [{ icao24: 'abc123', lon: AOI.east + AIRCRAFT_EDGE_PAD_DEG * 2, lat: 30 }];
+    assert.equal(
+      layoutAircraftVisibility([], farOutside, flat, 800, 400, AOI).placements[0]?.air,
+      null,
+    );
   });
 });
 
