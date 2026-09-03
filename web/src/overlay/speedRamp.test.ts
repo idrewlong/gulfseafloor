@@ -39,13 +39,27 @@ describe('speedRampCss', () => {
 });
 
 describe('speedLegendTicks', () => {
-  it('labels in knots across the full ramp', () => {
+  it('spans the full ramp in ascending order', () => {
     const ticks = speedLegendTicks();
     assert.ok(ticks.length >= 3);
     assert.equal(ticks[0]!.frac, 0);
     assert.equal(ticks[ticks.length - 1]!.frac, 1);
-    for (const tick of ticks) {
-      assert.match(tick.label, /kt$/);
+    for (let i = 1; i < ticks.length; i++) {
+      assert.ok(ticks[i]!.frac > ticks[i - 1]!.frac, 'fracs must increase');
     }
+  });
+
+  // The unit belongs in the title once, not on every tick.
+  it('labels are bare one-decimal numbers, not repeated units', () => {
+    for (const tick of speedLegendTicks()) {
+      assert.match(tick.label, /^\d+\.\d$/, `"${tick.label}" must be a bare number`);
+    }
+  });
+
+  it('reads the ramp ceiling in knots at the top tick', () => {
+    const ticks = speedLegendTicks();
+    // SPEED_MAX_MS is 0.6 m/s; 0.6 * 1.94384 = 1.17 kt.
+    assert.equal(ticks[ticks.length - 1]!.label, '1.2');
+    assert.equal(ticks[0]!.label, '0.0');
   });
 });

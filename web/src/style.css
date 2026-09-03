@@ -377,11 +377,11 @@ body {
   top: auto;
   bottom: 104px;
   right: 88px;
-  width: 180px;
+  width: 196px;
   flex-direction: column;
   align-items: stretch;
-  gap: 4px;
-  padding: 6px 8px;
+  gap: 5px;
+  padding: 7px 9px 6px;
   background: var(--paper);
   border: 1px solid var(--ink);
 }
@@ -389,7 +389,7 @@ body {
 .legend-currents .legend-ramp {
   position: static;
   inset: auto;
-  height: 10px;
+  height: 12px;
   border: 1px solid var(--ink);
 }
 
@@ -401,11 +401,31 @@ body {
   list-style: none;
 }
 
+/*
+ * The shared .legend rules colour text --land, which is sized for the dark
+ * map behind the depth legend. This panel sits on --paper, where --land is a
+ * 1.13:1 contrast ratio — effectively invisible. --ink is ~14:1.
+ */
+.legend-currents .legend-title {
+  color: var(--ink);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+}
+
 .legend-currents .legend-ticks li {
-  font-size: 10px;
-  font-weight: 500;
+  font-size: 11px;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
-  color: var(--land);
+  color: var(--ink);
+}
+
+/* Ties each number to its end of the ramp rather than letting them drift. */
+.legend-currents .legend-ticks li:first-child {
+  margin-left: -1px;
+}
+
+.legend-currents .legend-ticks li:last-child {
+  margin-right: -1px;
 }
 
 .controls {

@@ -60,10 +60,14 @@ export function speedRampCss(): string {
   return `linear-gradient(to right, ${stops.join(', ')})`;
 }
 
-/** Legend ticks at quarter points, labelled in knots. */
+/**
+ * Legend ticks at quarter points, in knots. Labels are bare numbers — the
+ * unit is stated once in the legend title, so five repetitions of "kt" do not
+ * crowd out the digits that carry the information.
+ */
 export function speedLegendTicks(): Array<{ frac: number; label: string }> {
   return [0, 0.25, 0.5, 0.75, 1].map((frac) => ({
     frac,
-    label: `${msToKnots(frac * SPEED_MAX_MS).toFixed(1)} kt`,
+    label: msToKnots(frac * SPEED_MAX_MS).toFixed(1),
   }));
 }

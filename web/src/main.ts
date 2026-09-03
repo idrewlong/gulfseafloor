@@ -172,7 +172,7 @@ function sameGridShape(a: GridShape | null, b: GridShape): boolean {
 
 function currentsLegendHtml(): string {
   return `
-    <p class="legend-title">Current speed</p>
+    <p class="legend-title">Current speed (kt)</p>
     <div class="legend-ramp" style="background: ${speedRampCss()};"></div>
     <ul class="legend-ticks">${speedLegendTicks()
       .map((tick) => `<li>${tick.label}</li>`)
