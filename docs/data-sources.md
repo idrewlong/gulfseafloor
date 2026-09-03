@@ -84,7 +84,7 @@ retrieved — verify NESDIS Notice of Changes before first pull.**
 | GEBCO global grid | `https://dap.ceda.ac.uk/bodc/gebco/global/gebco_2024/ice_surface_elevation/netcdf/GEBCO_2024_CF.nc` (CEDA, no registration; one of the files forming the GEBCO 2024 DOI). Retrieved 2026-09-03T01:26:58Z by `scripts/fetch-gebco.py`, which HTTP-range-reads the AOI rows out of the 7.4 GB grid rather than downloading it. | Public domain. [GEBCO terms of use](https://www.gebco.net/data-products/gridded-bathymetry/terms-of-use): free to copy, adapt, and commercially exploit. Use constitutes acceptance of the disclaimer (not for navigation / safety of navigation). | Required. Form (version-specific), e.g. `GEBCO Compilation Group (2024) GEBCO 2024 Grid (doi:10.5285/1c44ce99-0a0d-5f4f-e063-7086abc0ea0f)`. Must not imply GEBCO, IHO, or IOC endorsement. Must not misrepresent the grid or its source. | **Yes** — AOI clip at `internal/shelf/gebco.bin` (700 × 347 cells, 15 arc-second, int16), provenance in `internal/shelf/gebco.json`. Modified: resampled and blended with the procedural near-shore model. |
 | USGS 3DEP lidar | [AWS Open Data Registry — USGS 3DEP](https://registry.opendata.aws/usgs-lidar/). Topography side of the coastal strip. | U.S. government work, public domain. | Attribution requested (USGS 3DEP). No endorsement implied. | No |
 | SRTM / Copernicus DEM | SRTM via public NASA / OpenTopography-class archives. Copernicus DEM via the Copernicus programme distribution (registration-free mirrors only; if a portal requires an account, do not use that portal). | SRTM: U.S. government work, public domain. Copernicus DEM: Copernicus licence (free use with attribution; no implied endorsement). | SRTM: NASA / NGA collection acknowledgment. Copernicus: “produced using Copernicus WorldDEM-30 © DLR e.V. 2010–2014 and © Airbus Defence and Space GmbH 2014–2018 provided under COPERNICUS by the European Union and ESA; all rights reserved” (confirm the exact string for the edition pulled). | No |
-| HYCOM | Public THREDDS NCSS `https://ncss.hycom.org/thredds/ncss/grid/GLBy0.08/latest`. Two paths now pull it: `make ocean` does a one-shot classic-NetCDF request (single step, surface `vertCoord=0`) to seed or refresh an air-gapped tree; the server's background refresher (default on, `GULF_OCEAN_REFRESH=0` to disable) does a recurring CSV request over a `-3h..+24h` window on a ~1 h jittered ticker, producing one step per forecast time. Whichever last ran wins on disk, so the retrieval date below is continuously replaced while the refresher is enabled, not fixed at one pull. Last `make ocean` retrieval: 2026-08-26T00:15:02Z, snapshot validTime 2026-08-26T00:00:00Z. | Public model output; distributor terms on the THREDDS node in use. | Acknowledge the HYCOM consortium and the specific run / experiment ID. | No |
+| HYCOM | Public THREDDS NCSS `https://ncss.hycom.org/thredds/ncss/grid/GLBy0.08/latest`. Two paths now pull it: `make ocean` does a one-shot classic-NetCDF request (single step, surface `vertCoord=0`) to seed or refresh an air-gapped tree; the server's background refresher (default on, `GULF_OCEAN_REFRESH=0` to disable) does 10 recurring single-time classic-NetCDF requests spanning a `-3h..+24h` window on a ~1 h jittered ticker, merging them into one step per forecast time. (CSV was tried for the refresher first; NCSS's grid endpoint rejects `accept=csv` for a grid subset with HTTP 400 — CSV is only valid there for point requests.) Whichever last ran wins on disk, so the retrieval date below is continuously replaced while the refresher is enabled, not fixed at one pull. Last `make ocean` retrieval: 2026-08-26T00:15:02Z, snapshot validTime 2026-08-26T00:00:00Z. | Public model output; distributor terms on the THREDDS node in use. | Acknowledge the HYCOM consortium and the specific run / experiment ID. | No |
 | NDBC buoys | [ndbc.noaa.gov](https://www.ndbc.noaa.gov/). No API key. Retrieved 2026-08-26T00:15:02Z via `make ocean`. | NOAA open / NODD-class public data. | Same NODD rules. | No |
 | Argo floats | [argo.ucsd.edu](https://argo.ucsd.edu/). NetCDF profiles. | Freely available; collected and distributed by the International Argo Program and contributing national programmes. | Required: “These data were collected and made freely available by the International Argo Program and the national programs that contribute to it. (https://argo.ucsd.edu, https://www.ocean-ops.org). The Argo Program is part of the Global Ocean Observing System.” | No |
 | adsb.lol | `https://api.adsb.lol/v2/lat/{lat}/lon/{lon}/dist/{nm}`, anonymous, no key. Primary live feed at view time via `/api/aircraft`. | ODbL as documented by the API. | Acknowledge adsb.lol / feeders. No endorsement. Not for navigation. | No |
@@ -124,13 +124,24 @@ currents validTime `2026-08-26T00:00:00Z`. Files live in `data/ocean/` (gitignor
 
 `https://ncss.hycom.org/thredds/ncss/grid/GLBy0.08/latest`
 
-CSV is not offered on that node for `make ocean`'s single-timestamp query;
-it requests classic NetCDF (`accept=netcdf`) and omits `time=latest`
-(invalid on this FMRC), with surface `vertCoord=0`, yielding one step. The
-background refresher instead requests `accept=csv` over an explicit
-`-3h..+24h` time window, which the same node does serve, and groups the
-rows into one step per forecast time (quantized to 3 decimals, 1 mm/s). CI
-does not run `make ocean` and does not start the refresher.
+CSV is not offered on that node for a grid subset at all: NCSS answers
+`accept=csv` there with HTTP 400, "Format csv is not supported for Grid
+data request" (CSV is valid on this node only for point requests). Both
+paths therefore request classic NetCDF (`accept=netcdf`), with surface
+`vertCoord=0`. `make ocean` sends a single-timestamp query, omitting
+`time=latest` (invalid on this FMRC) and yielding one step. The background
+refresher sends 10 such single-time requests, one per 3-hourly step across
+an explicit `-3h..+24h` window, and merges the responses into one step per
+forecast time (deduping by returned validTime, quantized to 3 decimals,
+1 mm/s). CI does not run `make ocean` and does not start the refresher.
+
+NCSS also names the valid-time coordinate variable differently across
+queries — `time`/`time2` in the vendored fixtures, but a live single
+`time=` grid request against `GLBy0.08/latest` came back with `time4` (plus
+a `time4_run` companion holding the forecast *reference* time, not the
+valid time). `parseHYCOMNetCDF` resolves this by CF `standard_name` metadata
+("time" vs. "forecast_reference_time"), not by name, so per-step requests
+against the live service parse regardless of which numeral NCSS picks.
 
 ---
 

@@ -11,20 +11,6 @@ import (
 	"time"
 )
 
-// csvTwoSteps carries two latitudes so the parsed BBox has South < North:
-// a single-latitude grid (as an earlier draft of this fixture had) yields
-// South == North, which WriteSnapshot's own DecodeCurrents round-trip
-// rejects, so the on-disk write-through would never happen.
-const csvTwoSteps = "time,latitude[unit=degrees_north],longitude[unit=degrees_east],water_u[unit=m/s],water_v[unit=m/s]\n" +
-	"2026-09-03T12:00:00Z,30.0,-89.0,0.11,-0.05\n" +
-	"2026-09-03T12:00:00Z,30.0,-88.0,0.22,-0.06\n" +
-	"2026-09-03T12:00:00Z,30.5,-89.0,0.15,-0.05\n" +
-	"2026-09-03T12:00:00Z,30.5,-88.0,0.25,-0.06\n" +
-	"2026-09-03T15:00:00Z,30.0,-89.0,0.33,-0.07\n" +
-	"2026-09-03T15:00:00Z,30.0,-88.0,0.44,-0.08\n" +
-	"2026-09-03T15:00:00Z,30.5,-89.0,0.35,-0.07\n" +
-	"2026-09-03T15:00:00Z,30.5,-88.0,0.45,-0.08\n"
-
 // failingTransport fails the test if anything dials out.
 type failingTransport struct{ t *testing.T }
 
@@ -49,8 +35,21 @@ func seedOceanDir(t *testing.T) string {
 }
 
 func TestRefreshReplacesTheServedStack(t *testing.T) {
+	// FetchCurrents now issues one single-time request per forecast step
+	// (see ocean.CurrentsQuery: NCSS rejects accept=csv for a grid subset),
+	// so the fake upstream answers each request with its own single-time
+	// body, echoing back the requested time= as that step's validTime. Two
+	// latitudes keep the parsed BBox South < North, which WriteSnapshot's
+	// own DecodeCurrents round-trip requires, or the on-disk write-through
+	// would never happen.
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(csvTwoSteps))
+		when := r.URL.Query().Get("time")
+		body := "time,latitude[unit=degrees_north],longitude[unit=degrees_east],water_u[unit=m/s],water_v[unit=m/s]\n" +
+			when + ",30.0,-89.0,0.11,-0.05\n" +
+			when + ",30.0,-88.0,0.22,-0.06\n" +
+			when + ",30.5,-89.0,0.15,-0.05\n" +
+			when + ",30.5,-88.0,0.25,-0.06\n"
+		_, _ = w.Write([]byte(body))
 	}))
 	defer upstream.Close()
 
@@ -70,7 +69,10 @@ func TestRefreshReplacesTheServedStack(t *testing.T) {
 		OceanFirstRefreshDelay: time.Millisecond,
 	})
 
-	waitForSteps(t, h, 2)
+	// Echoing the request time back with no snapping means every one of the
+	// 10 per-step requests yields a distinct validTime, so the merge keeps
+	// all 10.
+	waitForSteps(t, h, 10)
 
 	// Write-through means a restart keeps the freshness.
 	onDisk, err := os.ReadFile(filepath.Join(dir, "currents.json"))
@@ -83,8 +85,8 @@ func TestRefreshReplacesTheServedStack(t *testing.T) {
 	if err := json.Unmarshal(onDisk, &got); err != nil {
 		t.Fatal(err)
 	}
-	if len(got.Steps) != 2 {
-		t.Errorf("on-disk steps = %d, want 2", len(got.Steps))
+	if len(got.Steps) != 10 {
+		t.Errorf("on-disk steps = %d, want 10", len(got.Steps))
 	}
 }
 

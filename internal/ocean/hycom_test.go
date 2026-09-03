@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/batchatco/go-native-netcdf/netcdf"
 )
 
 func TestWrapLon180FoldsHYCOMModulo360(t *testing.T) {
@@ -74,6 +76,49 @@ func TestParseHYCOMNetCDFBuildsSouthToNorthGrid(t *testing.T) {
 	}
 	if missing == 0 {
 		t.Fatal("NaN land/missing cells must stay null")
+	}
+}
+
+// TestNCTimeVarPrefersCFStandardNameOverAdHocNames guards against
+// regressing to a hardcoded name list (time/time2/time1). A live single
+// time= grid request against GLBy0.08/latest was observed to name the
+// valid-time coordinate "time4" (with a "time4_run" companion for the
+// forecast *reference* time) — a name outside that list, which made
+// parseHYCOMNetCDF fail against the real service even though it worked
+// against these vendored fixtures. There is no committed fixture with a
+// "time4"-named variable (*.nc is gitignored, so a new binary fixture would
+// never reach CI), so this locks in the mechanism instead: ncTimeVar must
+// pick the variable by its CF standard_name ("time"), not by name, and
+// must not be fooled by the run-time companion variable which sits right
+// next to it and shares the same units.
+func TestNCTimeVarPrefersCFStandardNameOverAdHocNames(t *testing.T) {
+	data, err := os.ReadFile("testdata/hycom_time2.nc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmp, err := os.CreateTemp("", "gulf-hycom-nctimevar-*.nc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(tmp.Name())
+	if _, err := tmp.Write(data); err != nil {
+		t.Fatal(err)
+	}
+	if err := tmp.Close(); err != nil {
+		t.Fatal(err)
+	}
+	nc, err := netcdf.Open(tmp.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer nc.Close()
+
+	vr, err := ncTimeVar(nc)
+	if err != nil {
+		t.Fatalf("ncTimeVar: %v", err)
+	}
+	if got := ncAttrString(vr, "standard_name"); got != "time" {
+		t.Fatalf("standard_name = %q, want %q (picked the run-time companion instead of the valid-time coordinate?)", got, "time")
 	}
 }
 

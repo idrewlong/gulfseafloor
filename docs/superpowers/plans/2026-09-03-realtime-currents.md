@@ -14,7 +14,7 @@
 
 - Forecast window is **−3 h to +24 h at 3-hourly cadence = 10 steps**.
 - `u`/`v` are **quantized to 3 decimal places** (1 mm/s) everywhere they are serialized.
-- The refresher requests **`accept=csv`**, not `accept=netcdf`. `parseHYCOMNetCDF` reads `times[0]` only and stays single-step; the CSV path is the multi-time path.
+- The refresher requests **`accept=netcdf`, once per forecast step (10 single-time requests), and merges the results.** `accept=csv` was tried against the live service and rejected — NCSS's grid endpoint answers HTTP 400 "Format csv is not supported for Grid data request"; CSV is only valid there for point requests. `parseHYCOMNetCDF` reads `times[0]` only and stays single-step, so the multi-time stack comes from merging N single-time NetCDF responses, not from teaching the parser to index a time dimension.
 - **Nothing fetches on the HTTP request path.** `/api/ocean/currents` answers from memory or disk, always.
 - `GULF_OCEAN_REFRESH` is **on unless `0`**, matching the existing `GULF_AIRCRAFT` convention in `cmd/server/main.go:43`.
 - Legacy single-step `currents.json` must keep decoding. `data/ocean/currents.json` on disk today is that shape.
