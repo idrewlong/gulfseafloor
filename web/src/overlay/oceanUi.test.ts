@@ -103,6 +103,14 @@ describe('currentsCaption', () => {
     assert.match(caption, /· stale$/);
   });
 
+  // bracket() clamps to i0===i1 exactly at a window endpoint, which used to
+  // drop the interpolation clause entirely and leave a bare timestamp — the
+  // one moment the caption would stop reading as model output.
+  it('names the forecast hour instead of going bare exactly on a step boundary', () => {
+    assert.equal(currentsCaption(capStack, capT0), 'Currents HYCOM 12Z · forecast hour 12Z');
+    assert.equal(currentsCaption(capStack, capT1), 'Currents HYCOM 15Z · forecast hour 15Z');
+  });
+
   it('is empty without a stack', () => {
     assert.equal(currentsCaption(null, capT0), '');
   });

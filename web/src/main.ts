@@ -149,6 +149,37 @@ function setOceanRadios(
   }
 }
 
+type GridShape = { nx: number; ny: number; bbox: BBox };
+
+function gridShapeOf(grid: { nx: number; ny: number; bbox: BBox }): GridShape {
+  return { nx: grid.nx, ny: grid.ny, bbox: grid.bbox };
+}
+
+/** True when a polled stack can reuse the mounted GPU grid via setGrid. */
+function sameGridShape(a: GridShape | null, b: GridShape): boolean {
+  if (a == null) {
+    return false;
+  }
+  return (
+    a.nx === b.nx &&
+    a.ny === b.ny &&
+    a.bbox.west === b.bbox.west &&
+    a.bbox.south === b.bbox.south &&
+    a.bbox.east === b.bbox.east &&
+    a.bbox.north === b.bbox.north
+  );
+}
+
+function currentsLegendHtml(): string {
+  return `
+    <p class="legend-title">Current speed</p>
+    <div class="legend-ramp" style="background: ${speedRampCss()};"></div>
+    <ul class="legend-ticks">${speedLegendTicks()
+      .map((tick) => `<li>${tick.label}</li>`)
+      .join('')}</ul>
+  `;
+}
+
 function hycomDatasetId(currentsRaw: unknown): string | null {
   if (currentsRaw && typeof currentsRaw === 'object' && 'source' in currentsRaw) {
     const dataset = (currentsRaw as { source?: { dataset?: unknown } }).source?.dataset;
@@ -417,6 +448,10 @@ async function start(): Promise<void> {
   let currentsStack: VelocityStack | null = null;
   let currentsEtag: string | null = null;
   let lastCursor = 0;
+  // Shape currentsHandle is currently mounted at. setGrid re-uploads in
+  // place assuming nx/ny/bbox never change; a polled stack that disagrees
+  // must remount instead (F6) rather than write past the GPU buffer.
+  let currentsGridShape: GridShape | null = null;
   let buoysValid: string | null = null;
   let oceanOn = { currents: false, buoys: false };
   let aircraftOn = false;
@@ -639,15 +674,10 @@ async function start(): Promise<void> {
 
     if (grid) {
       currentsHandle = mountCurrents(scene, grid, { reducedMotion: reduced, floatOk });
+      currentsGridShape = gridShapeOf(grid);
       currentsHandle.setEnabled(layersOn.currents);
       lastCursor = Date.now();
-      currentsLegend.innerHTML = `
-        <p class="legend-title">Current speed</p>
-        <div class="legend-ramp" style="background: ${speedRampCss()};"></div>
-        <ul class="legend-ticks">${speedLegendTicks()
-          .map((tick) => `<li>${tick.label}</li>`)
-          .join('')}</ul>
-      `;
+      currentsLegend.innerHTML = currentsLegendHtml();
       currentsLegend.hidden = !layersOn.currents;
     }
     if (buoysParsed) {
@@ -680,11 +710,36 @@ async function start(): Promise<void> {
         return;
       }
       const next = velocityStackFromJson(await res.json());
-      if (next) {
-        currentsStack = next;
-        currentsEtag = res.headers.get('ETag');
-        lastCursor = 0;
+      if (!next) {
+        return;
       }
+      currentsStack = next;
+      currentsEtag = res.headers.get('ETag');
+      lastCursor = 0;
+      const grid = interpolateGrid(next, Date.now());
+      if (!currentsHandle) {
+        // F5: on a fresh deploy the first request 404s before `make ocean`
+        // has ever run, and the background refresher lands ~15s after
+        // boot — 404-then-200 is the routine first-boot sequence, not an
+        // edge case. Mount lazily here, mirroring the bootstrap mount above.
+        currentsHandle = mountCurrents(scene, grid, { reducedMotion: reduced, floatOk });
+        currentsGridShape = gridShapeOf(grid);
+        currentsHandle.setEnabled(oceanOn.currents);
+        currentsLegend.innerHTML = currentsLegendHtml();
+        currentsLegend.hidden = !oceanOn.currents;
+        setOceanRadios(form, 'currents', true, oceanOn.currents);
+      } else if (!sameGridShape(currentsGridShape, grid)) {
+        // F6: setGrid re-uploads into a Float32Array sized at mount time and
+        // never updates the GPU-side grid bounds. A stack whose nx/ny/bbox
+        // differ from what is mounted must remount instead, or velocities
+        // get written out of bounds (a silent no-op) and sampled through
+        // stale bounds.
+        currentsHandle.destroy();
+        currentsHandle = mountCurrents(scene, grid, { reducedMotion: reduced, floatOk });
+        currentsGridShape = gridShapeOf(grid);
+        currentsHandle.setEnabled(oceanOn.currents);
+      }
+      setCaption(exaggeration);
     } catch {
       // A failed poll keeps the stack already loaded.
     }

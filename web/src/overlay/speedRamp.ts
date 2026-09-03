@@ -1,7 +1,14 @@
 import { msToKnots } from './windBarb.ts';
 
-/** Ramp ceiling. Loop Current filaments run near 1.5 m/s (~3 kt). */
-export const SPEED_MAX_MS = 1.5;
+/**
+ * Ramp ceiling, chosen for THIS AOI's measured range, not the Loop Current
+ * generally: a live pull over the Sound measured 0.004-0.380 m/s, median
+ * 0.181. A 1.5 m/s ceiling (open-water Loop Current filament speed) left
+ * everything in the bottom quarter of the ramp, wasting the legibility this
+ * feature exists for. 0.6 m/s (~1.2 kt) covers the observed max with
+ * headroom. This is the knob to turn if the AOI changes.
+ */
+export const SPEED_MAX_MS = 0.6;
 
 /**
  * Deep indigo → cyan → mint → pale yellow. Anchored in cyan to keep the

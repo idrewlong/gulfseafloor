@@ -314,6 +314,13 @@ body {
   gap: 8px;
 }
 
+/* display:flex above beats the UA [hidden] rule, so state it again or the
+   currents legend shows from first paint even though the layer defaults
+   off, and stays visible after being toggled off. */
+.legend-currents[hidden] {
+  display: none;
+}
+
 .legend-title,
 .legend-hint {
   margin: 0;

@@ -59,6 +59,13 @@ export function currentsCaption(stack: VelocityStack | null, nowMs: number): str
     const from = formatValidZ(new Date(stack.times[i0]!).toISOString());
     const to = formatValidZ(new Date(stack.times[i1]!).toISOString());
     caption += ` · interpolated ${from}→${to}`;
+  } else {
+    // bracket() clamps to i0===i1 exactly at either end of the window (now
+    // lands on the first or last step). Without this clause the caption
+    // would fall back to a bare timestamp, the one moment it would stop
+    // reading as model output rather than an observation.
+    const hour = formatValidZ(new Date(stack.times[i0]!).toISOString());
+    caption += ` · forecast hour ${hour}`;
   }
   if (isStale(stack, nowMs)) {
     caption += ' · stale';
