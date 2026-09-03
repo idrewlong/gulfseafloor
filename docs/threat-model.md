@@ -125,7 +125,31 @@ explicitly optional and local.
 
 The server opens files under `GULF_TILE_DIR` and returns bytes. It
 does not run GDAL. It does not fetch from S3 at request time in
-this increment.
+this increment. The request path itself never calls out — the one
+scheduled exception is described next.
+
+### Outbound egress: the currents refresher
+
+The serve process is not purely passive by default. A background
+goroutine (`internal/server/oceanrefresh.go`) fetches HYCOM currents
+from `GULF_HYCOM_URL` (default `ncss.hycom.org`) on a ~1 h jittered
+ticker, first run 15s after boot, and this runs whenever
+`GULF_OCEAN_REFRESH` is unset or not `0` — the default. This is the
+only scheduled outbound dependency in the serving binary; nothing
+fires on the HTTP request path itself, so a slow or hung NCSS never
+becomes request latency.
+
+| | Threat | Design response |
+|---|---|---|
+| **T**ampering | A malicious or compromised `ncss.hycom.org` response — corrupt CSV, absurd velocities, a bbox outside the AOI. | The fetch is capped (`hycomCSVLimit`, 8 MiB) and parsed by the same `ParseHYCOM`/`ParseHYCOMCSV` path as `make ocean`. A bbox check rejects a response that does not intersect the AOI. A parse or validation failure discards the fetch and keeps serving the prior in-memory stack; it is never written to disk half-parsed. |
+| **D**enial of service | NCSS is slow, hangs, or the network is unreachable. | `OceanClient` has a 90s timeout. Failure just logs (`slog.Warn`) and returns — the ticker's next jittered tick tries again; the currently served stack (last good fetch, or the on-disk snapshot from `make ocean`) is unaffected. There is no retry storm: one attempt per ~1 h tick, not per request. |
+| **I**nformation disclosure / **E**levation of privilege | Egress itself, in an environment meant to be air-gapped. | `GULF_OCEAN_REFRESH=0` is the opt-out: the ticker goroutine never starts, `/api/ocean/currents` serves only the on-disk snapshot, and the serve process makes zero outbound calls again, matching the pre-refresher air-gap property. A disconnected deployment that wants the original guarantee sets this. |
+
+Failure mode, stated plainly: a bad or unreachable HYCOM node makes
+`/api/ocean/currents` **stale**, not unavailable and not corrupted —
+the last validated stack (in memory, or on disk from a prior run)
+keeps serving. There is no code path where a failed refresh reaches
+a client.
 
 ### STRIDE — serve
 

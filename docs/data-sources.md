@@ -84,7 +84,7 @@ retrieved — verify NESDIS Notice of Changes before first pull.**
 | GEBCO global grid | `https://dap.ceda.ac.uk/bodc/gebco/global/gebco_2024/ice_surface_elevation/netcdf/GEBCO_2024_CF.nc` (CEDA, no registration; one of the files forming the GEBCO 2024 DOI). Retrieved 2026-09-03T01:26:58Z by `scripts/fetch-gebco.py`, which HTTP-range-reads the AOI rows out of the 7.4 GB grid rather than downloading it. | Public domain. [GEBCO terms of use](https://www.gebco.net/data-products/gridded-bathymetry/terms-of-use): free to copy, adapt, and commercially exploit. Use constitutes acceptance of the disclaimer (not for navigation / safety of navigation). | Required. Form (version-specific), e.g. `GEBCO Compilation Group (2024) GEBCO 2024 Grid (doi:10.5285/1c44ce99-0a0d-5f4f-e063-7086abc0ea0f)`. Must not imply GEBCO, IHO, or IOC endorsement. Must not misrepresent the grid or its source. | **Yes** — AOI clip at `internal/shelf/gebco.bin` (700 × 347 cells, 15 arc-second, int16), provenance in `internal/shelf/gebco.json`. Modified: resampled and blended with the procedural near-shore model. |
 | USGS 3DEP lidar | [AWS Open Data Registry — USGS 3DEP](https://registry.opendata.aws/usgs-lidar/). Topography side of the coastal strip. | U.S. government work, public domain. | Attribution requested (USGS 3DEP). No endorsement implied. | No |
 | SRTM / Copernicus DEM | SRTM via public NASA / OpenTopography-class archives. Copernicus DEM via the Copernicus programme distribution (registration-free mirrors only; if a portal requires an account, do not use that portal). | SRTM: U.S. government work, public domain. Copernicus DEM: Copernicus licence (free use with attribution; no implied endorsement). | SRTM: NASA / NGA collection acknowledgment. Copernicus: “produced using Copernicus WorldDEM-30 © DLR e.V. 2010–2014 and © Airbus Defence and Space GmbH 2014–2018 provided under COPERNICUS by the European Union and ESA; all rights reserved” (confirm the exact string for the edition pulled). | No |
-| HYCOM | Public THREDDS NCSS `https://ncss.hycom.org/thredds/ncss/grid/GLBy0.08/latest`. Retrieved 2026-08-26T00:15:02Z (classic NetCDF, surface `vertCoord=0`). Snapshot validTime 2026-08-26T00:00:00Z. | Public model output; distributor terms on the THREDDS node in use. | Acknowledge the HYCOM consortium and the specific run / experiment ID. | No |
+| HYCOM | Public THREDDS NCSS `https://ncss.hycom.org/thredds/ncss/grid/GLBy0.08/latest`. Two paths now pull it: `make ocean` does a one-shot classic-NetCDF request (single step, surface `vertCoord=0`) to seed or refresh an air-gapped tree; the server's background refresher (default on, `GULF_OCEAN_REFRESH=0` to disable) does a recurring CSV request over a `-3h..+24h` window on a ~1 h jittered ticker, producing one step per forecast time. Whichever last ran wins on disk, so the retrieval date below is continuously replaced while the refresher is enabled, not fixed at one pull. Last `make ocean` retrieval: 2026-08-26T00:15:02Z, snapshot validTime 2026-08-26T00:00:00Z. | Public model output; distributor terms on the THREDDS node in use. | Acknowledge the HYCOM consortium and the specific run / experiment ID. | No |
 | NDBC buoys | [ndbc.noaa.gov](https://www.ndbc.noaa.gov/). No API key. Retrieved 2026-08-26T00:15:02Z via `make ocean`. | NOAA open / NODD-class public data. | Same NODD rules. | No |
 | Argo floats | [argo.ucsd.edu](https://argo.ucsd.edu/). NetCDF profiles. | Freely available; collected and distributed by the International Argo Program and contributing national programmes. | Required: “These data were collected and made freely available by the International Argo Program and the national programs that contribute to it. (https://argo.ucsd.edu, https://www.ocean-ops.org). The Argo Program is part of the Global Ocean Observing System.” | No |
 | adsb.lol | `https://api.adsb.lol/v2/lat/{lat}/lon/{lon}/dist/{nm}`, anonymous, no key. Primary live feed at view time via `/api/aircraft`. | ODbL as documented by the API. | Acknowledge adsb.lol / feeders. No endorsement. Not for navigation. | No |
@@ -98,19 +98,39 @@ column as the italicised sentence at the top of this section.
 
 ## Ocean snapshot
 
-HYCOM surface currents and NDBC station observations are not vendored.
-`make ocean` writes `data/ocean/{currents,buoys,manifest}.json` (gitignored).
-The viewer serves those files at `/api/ocean/*` with no outbound calls, so
-a machine that already has a snapshot still works with the network unplugged.
+HYCOM surface currents and NDBC station observations are not vendored in
+the repository. `make ocean` writes `data/ocean/{currents,buoys,manifest}.json`
+(gitignored) as a one-shot pull; that snapshot is the seed and the air-gap
+fallback.
 
-First successful pull: **2026-08-26T00:15:02Z**, dataset `GLBy0.08/latest`,
+By default the running server does more than serve that file: a background
+goroutine re-fetches HYCOM currents on a ~1 h jittered ticker (first run
+15s after boot), writes the result through to `data/ocean/currents.json`,
+and publishes it to an in-memory cache; a failed fetch serves the last good
+stack instead of failing the request. Nothing on the HTTP request path
+calls out. Set `GULF_OCEAN_REFRESH=0` to stop the ticker — the server then
+serves only whatever is already on disk, with no outbound calls, which is
+also how `/api/ocean/manifest` and `/api/ocean/buoys` behave in every
+configuration: NDBC observations are never re-fetched by the running
+server, only by a fresh `make ocean`.
+
+Because of the refresher, `data/ocean/currents.json`'s retrieval date is
+continuously replaced while the server runs with refresh enabled, not
+fixed at one pull. The date below is the most recent `make ocean` seed,
+not a claim about what is currently on disk.
+
+Seed retrieval: **2026-08-26T00:15:02Z**, dataset `GLBy0.08/latest`,
 currents validTime `2026-08-26T00:00:00Z`. Files live in `data/ocean/` (gitignored).
 
 `https://ncss.hycom.org/thredds/ncss/grid/GLBy0.08/latest`
 
-CSV is not offered on that node; `make ocean` requests classic NetCDF
-(`accept=netcdf`) and omits `time=latest` (invalid on this FMRC), with
-surface `vertCoord=0`. CI does not run `make ocean`.
+CSV is not offered on that node for `make ocean`'s single-timestamp query;
+it requests classic NetCDF (`accept=netcdf`) and omits `time=latest`
+(invalid on this FMRC), with surface `vertCoord=0`, yielding one step. The
+background refresher instead requests `accept=csv` over an explicit
+`-3h..+24h` time window, which the same node does serve, and groups the
+rows into one step per forecast time (quantized to 3 decimals, 1 mm/s). CI
+does not run `make ocean` and does not start the refresher.
 
 ---
 
@@ -129,9 +149,11 @@ fetch, so a 10 s poll (8,640 fetches/day) exhausts the day's budget in
 roughly 40 minutes and the layer then goes dark. adsb.lol publishes no
 such ceiling, so it carries the session.
 
-Set `GULF_AIRCRAFT=0` for an air-gap: the route returns 404, the bathymetry
-toggle disables, and terrain plus ocean snapshots still work. CI does not
-hit the live feeds.
+Set `GULF_AIRCRAFT=0` to remove this egress: the route returns 404 and the
+aircraft toggle disables. Terrain has no outbound calls regardless. Ocean
+currents are a separate egress now (see Ocean snapshot, above) — a full
+air-gap needs `GULF_OCEAN_REFRESH=0` as well. CI does not hit the live
+feeds and does not start the currents refresher.
 
 ---
 
