@@ -39,9 +39,14 @@ not a navigation tool.
 
 One dataset has been fetched into this repository: an AOI clip of the GEBCO
 2024 grid, vendored at `internal/shelf/gebco.bin` and retrieved 2026-09-03 by
-`scripts/fetch-gebco.py`. No NOAA, USGS, HYCOM, NDBC, or Argo bytes have been
-fetched. Retrieval dates are recorded per row; rows without one are
-unretrieved. Before the first pull, check
+`scripts/fetch-gebco.py`. No NOAA, USGS, HYCOM, NDBC, or Argo bytes are
+vendored *in the repository* — the repo itself carries only the GEBCO clip.
+A running server is a different story: `make ocean` writes HYCOM and NDBC
+bytes to the gitignored `data/ocean/`, and the background currents
+refresher (see §3, "Air-gap as a constraint") writes fresh HYCOM bytes
+there on its own schedule. Both are untracked by git. Retrieval dates are
+recorded per row; rows without one are unretrieved. Before the first pull,
+check
 the [NESDIS Notice of Changes](https://www.nesdis.noaa.gov/about/documents-reports/notice-of-changes)
 — NOAA has been retiring marine, coastal, and estuary products at an elevated
 rate since 2025. Record the retrieval date in [`docs/data-sources.md`](docs/data-sources.md)
@@ -99,8 +104,12 @@ table, the allowed/not-allowed boundary, and the empty retrieval-date column.
 │    /api/depth?lat&lon        point query                            │
 │    /api/manifest             available regions, extents, stats      │
 │    /api/ocean/manifest       ocean snapshot inventory (404 until    │
-│    /api/ocean/currents       `make ocean`; snapshot, air-gap safe)  │
-│    /api/ocean/buoys                                                 │
+│                              `make ocean`)                          │
+│    /api/ocean/currents       refreshes from HYCOM hourly by         │
+│                              default; falls back to the on-disk     │
+│                              snapshot on failure, or always when    │
+│                              GULF_OCEAN_REFRESH=0 (air-gap)         │
+│    /api/ocean/buoys          snapshot only (404 until `make ocean`) │
 │    /api/aircraft             live ADS-B (adsb.lol; not a snapshot;  │
 │                              404 if GULF_AIRCRAFT=0)                │
 │    embedded static assets (single binary, no CDN)                   │
@@ -138,15 +147,24 @@ There is no Node runtime, no nginx config, and no CDN at serve time. That
 is the unit you copy onto a disconnected machine. See
 [ADR 0002](docs/adr/0002-go-tile-server-vs-static-tiles.md).
 
-**Air-gap as a constraint, not a stretch.** Terrain tiles and the ocean
-overlay have no outbound calls at serve time. Seed tiles travel with the
-binary (local) or inside a Zarf tarball (cluster). `GET /api/ocean/manifest`,
-`/api/ocean/currents`, and `/api/ocean/buoys` serve the last snapshot from
-`data/ocean/` (404 until `HYCOM_NCSS=https://ncss.hycom.org/thredds/ncss/grid/GLBy0.08/latest make ocean`). `GET /api/aircraft` is the live
-exception: the server polls adsb.lol (OpenSky in reserve) only while a client
-asks. `GULF_AIRCRAFT=0` returns 404 so an air-gap still serves terrain and
-ocean. GDAL, SNS, S3, HYCOM, and NDBC exist only on ingest, which is not
-required to view already-built tiles.
+**Air-gap as a constraint, not a stretch, and now an opt-out.** Terrain
+tiles have no outbound calls at serve time: seed tiles travel with the
+binary (local) or inside a Zarf tarball (cluster). The ocean overlay is
+no longer air-gapped by default. `GET /api/ocean/currents` is backed by
+a background goroutine that fetches HYCOM on a ~1 h jittered ticker
+(first run 15s after boot) and writes the result through to
+`data/ocean/` before publishing it; a fetch failure serves the last
+good stack instead of failing the request. Nothing on the HTTP request
+path itself calls out. `GULF_OCEAN_REFRESH=0` disables that ticker and
+restores the original property: `/api/ocean/currents` then serves only
+the on-disk snapshot, with no egress, same as `/api/ocean/manifest` and
+`/api/ocean/buoys`, which remain snapshot-only in every configuration
+(404 until `make ocean`). `GET /api/aircraft` is a second live path: the
+server polls adsb.lol (OpenSky in reserve) only while a client asks.
+`GULF_AIRCRAFT=0` returns 404 so an air-gap still serves terrain, and
+`GULF_OCEAN_REFRESH=0` alongside it removes the currents egress too.
+GDAL, SNS, S3, and NDBC exist only on ingest, which is not required to
+view already-built tiles.
 
 The renderer is three.js / WebGL2 on a planar Web Mercator quad, not a
 WGS84 ellipsoid. Cesium is the documented stretch, not the current target.
@@ -333,6 +351,8 @@ Open [http://127.0.0.1:8080](http://127.0.0.1:8080).
 | `GULF_WEB_DIR` | `web/dist` | SPA root if `index.html` is there; otherwise the binary embed |
 | `GULF_CORS_ORIGIN` | empty (same-origin only) | single allowed origin; `*` is ignored, never emitted |
 | `GULF_AIRCRAFT` | enabled unless `0` | `0` disables `GET /api/aircraft` (404). Live ADS-B; not required for tiles or ocean snapshots |
+| `GULF_OCEAN_REFRESH` | enabled unless `0` | `0` stops background HYCOM refresh; `/api/ocean/currents` then serves only the on-disk snapshot, with no outbound calls |
+| `GULF_HYCOM_URL` | `https://ncss.hycom.org/thredds/ncss/grid/GLBy0.08/latest` | NCSS base for the currents refresher |
 | `LOG_FORMAT` | `text` | `json` for a collector; anything else is text |
 
 See [`docs/deployment.md`](docs/deployment.md).

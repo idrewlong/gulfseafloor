@@ -48,7 +48,7 @@ func parseHYCOMNetCDF(data []byte, src Source) (Currents, error) {
 	if err != nil {
 		return Currents{}, err
 	}
-	timeVar, err := ncVar(nc, "time", "time2", "time1")
+	timeVar, err := ncTimeVar(nc)
 	if err != nil {
 		return Currents{}, err
 	}
@@ -116,6 +116,43 @@ func uOkThen(v float64, ok bool) *float64 {
 		return nil
 	}
 	return &v
+}
+
+// ncTimeVar finds the valid-time coordinate variable. NCSS names it
+// differently depending on how many time axes the FMRC aggregates for a
+// given query — "time" and "time2" for the vendored fixtures, but a live
+// single time= grid request against GLBy0.08/latest can come back with
+// "time4" (with a companion "time4_run" for the forecast *reference* time,
+// which must not be mistaken for the valid time). Guessing at names is
+// fragile, so this matches on the CF convention instead: the valid-time
+// coordinate carries standard_name "time" (the run-time companion carries
+// "forecast_reference_time"). _CoordinateAxisType "Time" is a second CF
+// signal tried if standard_name is absent. A handful of literal names are
+// tried last, for files with neither attribute.
+func ncTimeVar(nc api.Group) (*api.Variable, error) {
+	names := nc.ListVariables()
+	for _, name := range names {
+		vr, err := nc.GetVariable(name)
+		if err != nil || vr == nil {
+			continue
+		}
+		if strings.EqualFold(ncAttrString(vr, "standard_name"), "time") {
+			return vr, nil
+		}
+	}
+	for _, name := range names {
+		vr, err := nc.GetVariable(name)
+		if err != nil || vr == nil {
+			continue
+		}
+		if strings.EqualFold(ncAttrString(vr, "_CoordinateAxisType"), "Time") {
+			return vr, nil
+		}
+	}
+	if vr, err := ncVar(nc, "time", "time2", "time1"); err == nil {
+		return vr, nil
+	}
+	return nil, fmt.Errorf("ocean: hycom: missing time coordinate variable")
 }
 
 func ncVar(nc api.Group, names ...string) (*api.Variable, error) {

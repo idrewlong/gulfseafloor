@@ -36,6 +36,7 @@ Recorded because the whole design is a reaction to it.
 | Air-gap posture | `GULF_OCEAN_REFRESH != "0"` — default on, opt out, matching `GULF_AIRCRAFT` |
 | Who fetches | Go server, background goroutine. Browser only hits `/api/ocean/currents`. CSP stays `connect-src 'self'` |
 | Refresh cadence | ~1 h, jittered. GLBy0.08 posts once daily; faster is noise against NCSS |
+| Fetch format | `accept=netcdf`, one single-time request per forecast step (10 requests), merged. `accept=csv` was tried against the live service and rejected: NCSS's grid endpoint returns HTTP 400 "Format csv is not supported for Grid data request" — CSV is valid there only for point requests, not grid subsets |
 | Time UI | Honest caption, no control. No scrubber, no play toggle |
 | Visual | Speed-ramped tapered streaklines. Keeps the GPU ping-pong architecture |
 | Buoy assimilation | Rejected. A hand-rolled blend of NDBC obs into a model field is exactly what a Stennis reviewer would catch |
@@ -92,10 +93,15 @@ type Currents struct {
   re-fetch, and every existing decode test stays meaningful.
 - Every step shares one `nx`/`ny`/`bbox`. A step whose length disagrees is a
   decode error, not a silent truncation.
-- The NCSS query grows a time window. Today `cmd/ocean` sends no time
-  parameter and gets a single nearest step; the fetch adds
-  `time_start`/`time_end` spanning −3 h to +24 h so NCSS returns the stack in
-  one request. `horizStride=1` and `vertCoord=0` are unchanged.
+- The NCSS query does **not** grow a time window on a single request.
+  `accept=csv` with `time_start`/`time_end` was the original plan, but NCSS's
+  grid endpoint rejects `accept=csv` for a grid subset outright (HTTP 400,
+  "Format csv is not supported for Grid data request" — CSV is valid there
+  only for point requests). Instead the refresher issues 10 single-time
+  `accept=netcdf` requests, one per 3-hourly step in the −3 h to +24 h
+  window, and merges the results into one stack — the same per-step shape
+  `cmd/ocean` already sends, just repeated across the window. `horizStride=1`
+  and `vertCoord=0` are unchanged.
 - Null cells stay null per step. Land is land at every forecast hour.
 
 ## 5. Server — background refresher

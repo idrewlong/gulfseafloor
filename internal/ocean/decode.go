@@ -33,9 +33,34 @@ func DecodeCurrents(r io.Reader) (Currents, error) {
 		return Currents{}, fmt.Errorf("ocean: currents: nx and ny must be positive")
 	}
 	need := c.NX * c.NY
-	if len(c.U) != need || len(c.V) != need {
-		return Currents{}, fmt.Errorf("ocean: currents: u/v length must equal nx*ny (%d)", need)
+	if len(c.Steps) == 0 {
+		// Legacy flat shape: lift u/v into a one-step stack.
+		if len(c.U) != need || len(c.V) != need {
+			return Currents{}, fmt.Errorf("ocean: currents: u/v length must equal nx*ny (%d)", need)
+		}
+		c.Steps = []Step{{ValidTime: c.ValidTime, U: c.U, V: c.V}}
 	}
+	var prev time.Time
+	for i := range c.Steps {
+		st := &c.Steps[i]
+		valid, err := requireUTC(st.ValidTime)
+		if err != nil {
+			return Currents{}, fmt.Errorf("ocean: currents: step %d validTime %w", i, err)
+		}
+		if valid.IsZero() {
+			return Currents{}, fmt.Errorf("ocean: currents: step %d missing validTime", i)
+		}
+		st.ValidTime = valid
+		if i > 0 && !valid.After(prev) {
+			return Currents{}, fmt.Errorf("ocean: currents: step %d validTime must increase", i)
+		}
+		prev = valid
+		if len(st.U) != need || len(st.V) != need {
+			return Currents{}, fmt.Errorf("ocean: currents: step %d u/v length must equal nx*ny (%d)", i, need)
+		}
+	}
+	c.U, c.V = nil, nil
+	c.ValidTime = c.Steps[0].ValidTime
 	if c.BBox.West >= c.BBox.East || c.BBox.South >= c.BBox.North {
 		return Currents{}, fmt.Errorf("ocean: currents: bbox west<east and south<north required")
 	}
@@ -101,6 +126,11 @@ func utcLayer(info *LayerInfo, name string) error {
 		return fmt.Errorf("ocean: manifest: %s validTime %w", name, err)
 	}
 	info.ValidTime = t
+	r, err := requireUTCPtr(info.RetrievedAt)
+	if err != nil {
+		return fmt.Errorf("ocean: manifest: %s retrievedAt %w", name, err)
+	}
+	info.RetrievedAt = r
 	return nil
 }
 

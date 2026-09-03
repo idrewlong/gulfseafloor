@@ -314,6 +314,13 @@ body {
   gap: 8px;
 }
 
+/* display:flex above beats the UA [hidden] rule, so state it again or the
+   currents legend shows from first paint even though the layer defaults
+   off, and stays visible after being toggled off. */
+.legend-currents[hidden] {
+  display: none;
+}
+
 .legend-title,
 .legend-hint {
   margin: 0;
@@ -359,6 +366,46 @@ body {
 .legend-ramp {
   position: absolute;
   inset: 2px;
+}
+
+/*
+ * Sits in the free strip between the depth legend's right-hand column and
+ * the caption's reserved right margin (see .scene-caption's max-width) —
+ * a horizontal speed ramp instead of the depth legend's vertical rail.
+ */
+.legend-currents {
+  top: auto;
+  bottom: 104px;
+  right: 88px;
+  width: 180px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  padding: 6px 8px;
+  background: var(--paper);
+  border: 1px solid var(--ink);
+}
+
+.legend-currents .legend-ramp {
+  position: static;
+  inset: auto;
+  height: 10px;
+  border: 1px solid var(--ink);
+}
+
+.legend-currents .legend-ticks {
+  display: flex;
+  justify-content: space-between;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.legend-currents .legend-ticks li {
+  font-size: 10px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--land);
 }
 
 .controls {
@@ -829,6 +876,10 @@ body {
   }
 
   .legend {
+    bottom: 160px;
+  }
+
+  .legend-currents {
     bottom: 160px;
   }
 

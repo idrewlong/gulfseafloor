@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-const hycomCSVLimit = 8 << 20 // 8 MiB
+const hycomBodyLimit = 8 << 20 // 8 MiB
 
 var hycomUnit = regexp.MustCompile(`(?i)\[unit=[^\]]*\]`)
 
@@ -27,7 +27,7 @@ type hycomCell struct {
 // cell-center velocity grid. Unique longitudes are west to east, unique
 // latitudes south to north; missing and NaN velocities become nil cells.
 func ParseHYCOMCSV(r io.Reader, src Source) (Currents, error) {
-	data, err := io.ReadAll(io.LimitReader(r, hycomCSVLimit))
+	data, err := io.ReadAll(io.LimitReader(r, hycomBodyLimit))
 	if err != nil {
 		return Currents{}, fmt.Errorf("ocean: hycom: %w", err)
 	}
@@ -60,11 +60,11 @@ func ParseHYCOMCSV(r io.Reader, src Source) (Currents, error) {
 		}
 	}
 
-	cells := make([]hycomCell, 0, len(rows))
+	byTime := map[time.Time][]hycomCell{}
 	var lons, lats []float64
 	lonSeen := map[float64]struct{}{}
 	latSeen := map[float64]struct{}{}
-	var validTime time.Time
+	var firstTime time.Time
 
 	for i, rec := range rows {
 		if len(rec) <= need {
@@ -73,11 +73,6 @@ func ParseHYCOMCSV(r io.Reader, src Source) (Currents, error) {
 		t, err := parseHYCOMTime(rec[timeCol])
 		if err != nil {
 			return Currents{}, fmt.Errorf("ocean: hycom: row %d: time: %w", i+2, err)
-		}
-		if validTime.IsZero() {
-			validTime = t
-		} else if !t.Equal(validTime) {
-			return Currents{}, fmt.Errorf("ocean: hycom: row %d: time differs from first row", i+2)
 		}
 		lat, err := strconv.ParseFloat(strings.TrimSpace(rec[latCol]), 64)
 		if err != nil {
@@ -102,26 +97,57 @@ func ParseHYCOMCSV(r io.Reader, src Source) (Currents, error) {
 		if err != nil {
 			return Currents{}, fmt.Errorf("ocean: hycom: row %d: v: %w", i+2, err)
 		}
-		if _, ok := lonSeen[lon]; !ok {
-			lonSeen[lon] = struct{}{}
-			lons = append(lons, lon)
+		if firstTime.IsZero() {
+			firstTime = t
 		}
-		if _, ok := latSeen[lat]; !ok {
-			latSeen[lat] = struct{}{}
-			lats = append(lats, lat)
+		// Axis discovery runs on the first time only, so the grid shape is
+		// one time's worth of cells rather than the whole file's.
+		if t.Equal(firstTime) {
+			if _, ok := lonSeen[lon]; !ok {
+				lonSeen[lon] = struct{}{}
+				lons = append(lons, lon)
+			}
+			if _, ok := latSeen[lat]; !ok {
+				latSeen[lat] = struct{}{}
+				lats = append(lats, lat)
+			}
 		}
-		cells = append(cells, hycomCell{
-			lon: lon,
-			lat: lat,
-			u:   u,
-			v:   v,
-		})
+		byTime[t] = append(byTime[t], hycomCell{lon: lon, lat: lat, u: u, v: v})
 	}
 
 	if len(lons) == 0 || len(lats) == 0 {
 		return Currents{}, fmt.Errorf("ocean: hycom: empty grid")
 	}
-	return gridFromCells(cells, lons, lats, validTime, src)
+	sort.Float64s(lons)
+	sort.Float64s(lats)
+	nx, ny := len(lons), len(lats)
+
+	times := make([]time.Time, 0, len(byTime))
+	for t := range byTime {
+		times = append(times, t)
+	}
+	sort.Slice(times, func(i, j int) bool { return times[i].Before(times[j]) })
+
+	want := len(byTime[times[0]])
+	steps := make([]Step, 0, len(times))
+	for _, t := range times {
+		cells := byTime[t]
+		if len(cells) != want {
+			return Currents{}, fmt.Errorf("ocean: hycom: time %s has %d cells, want %d", t.Format(time.RFC3339), len(cells), want)
+		}
+		u, v := stepFromCells(cells, lons, lats)
+		steps = append(steps, Step{ValidTime: t, U: u, V: v})
+	}
+
+	return Currents{
+		ValidTime: times[0],
+		Source:    src,
+		BBox:      BBox{West: lons[0], South: lats[0], East: lons[nx-1], North: lats[ny-1]},
+		NX:        nx,
+		NY:        ny,
+		Grid:      "centers",
+		Steps:     steps,
+	}, nil
 }
 
 func wrapLon180(lon float64) float64 {
@@ -134,11 +160,10 @@ func wrapLon180(lon float64) float64 {
 	return lon
 }
 
-func gridFromCells(cells []hycomCell, lons, lats []float64, validTime time.Time, src Source) (Currents, error) {
-	sort.Float64s(lons)
-	sort.Float64s(lats)
+// stepFromCells lays cells out row-major, west-to-east, south-to-north.
+// lons and lats must already be sorted ascending.
+func stepFromCells(cells []hycomCell, lons, lats []float64) ([]*float64, []*float64) {
 	nx, ny := len(lons), len(lats)
-
 	lonIdx := make(map[float64]int, nx)
 	latIdx := make(map[float64]int, ny)
 	for i, lon := range lons {
@@ -147,15 +172,31 @@ func gridFromCells(cells []hycomCell, lons, lats []float64, validTime time.Time,
 	for j, lat := range lats {
 		latIdx[lat] = j
 	}
-
 	u := make([]*float64, nx*ny)
 	v := make([]*float64, nx*ny)
 	for _, c := range cells {
 		idx := latIdx[c.lat]*nx + lonIdx[c.lon]
-		u[idx] = c.u
-		v[idx] = c.v
+		u[idx] = quantizePtr(c.u)
+		v[idx] = quantizePtr(c.v)
 	}
+	return u, v
+}
 
+// quantizePtr rounds to 1 mm/s. Sub-millimetre precision on a 1/12-degree
+// model is noise, and it roughly halves the serialized payload.
+func quantizePtr(v *float64) *float64 {
+	if v == nil {
+		return nil
+	}
+	q := math.Round(*v*1000) / 1000
+	return &q
+}
+
+func gridFromCells(cells []hycomCell, lons, lats []float64, validTime time.Time, src Source) (Currents, error) {
+	sort.Float64s(lons)
+	sort.Float64s(lats)
+	nx, ny := len(lons), len(lats)
+	u, v := stepFromCells(cells, lons, lats)
 	return Currents{
 		ValidTime: validTime,
 		Source:    src,
@@ -165,17 +206,16 @@ func gridFromCells(cells []hycomCell, lons, lats []float64, validTime time.Time,
 			East:  lons[nx-1],
 			North: lats[ny-1],
 		},
-		NX:   nx,
-		NY:   ny,
-		Grid: "centers",
-		U:    u,
-		V:    v,
+		NX:    nx,
+		NY:    ny,
+		Grid:  "centers",
+		Steps: []Step{{ValidTime: validTime, U: u, V: v}},
 	}, nil
 }
 
 // ParseHYCOM reads an NCSS CSV or classic NetCDF-3 subset.
 func ParseHYCOM(r io.Reader, src Source) (Currents, error) {
-	data, err := io.ReadAll(io.LimitReader(r, hycomCSVLimit))
+	data, err := io.ReadAll(io.LimitReader(r, hycomBodyLimit))
 	if err != nil {
 		return Currents{}, fmt.Errorf("ocean: hycom: %w", err)
 	}
@@ -191,7 +231,7 @@ func ParseHYCOM(r io.Reader, src Source) (Currents, error) {
 func dropHYCOMComments(data []byte) ([]byte, error) {
 	var out bytes.Buffer
 	sc := bufio.NewScanner(bytes.NewReader(data))
-	sc.Buffer(make([]byte, 0, 64*1024), hycomCSVLimit)
+	sc.Buffer(make([]byte, 0, 64*1024), hycomBodyLimit)
 	for sc.Scan() {
 		line := sc.Text()
 		trim := strings.TrimSpace(line)

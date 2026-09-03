@@ -2,8 +2,11 @@ package server
 
 import (
 	"io/fs"
+	"net/http"
 	"runtime"
 	"time"
+
+	"github.com/idrewlong/gulfseafloor/internal/ocean"
 )
 
 // Config is the runtime knobs for the tile/API server.
@@ -33,6 +36,20 @@ type Config struct {
 	AircraftCacheTTL time.Duration
 	// AircraftStaleFor controls how long a prior success may mask feed failure. Default: 60s.
 	AircraftStaleFor time.Duration
+	// OceanRefreshEnabled re-fetches HYCOM currents in the background.
+	// Off means zero egress: the disk snapshot is served unchanged.
+	OceanRefreshEnabled bool
+	// OceanRefreshEvery is the refresh period. Default: 1h.
+	OceanRefreshEvery time.Duration
+	// HYCOMURL is the NCSS base. Default: ocean.DefaultHYCOMBase.
+	HYCOMURL string
+	// OceanNow supplies the refresher clock. Default: time.Now().UTC.
+	OceanNow func() time.Time
+	// OceanClient is the refresher's HTTP client. Default: 90s timeout.
+	OceanClient *http.Client
+	// OceanFirstRefreshDelay delays the first refresh after boot so startup
+	// never waits on NCSS. Default: 15s. Tests set it small.
+	OceanFirstRefreshDelay time.Duration
 }
 
 func (c Config) withDefaults() Config {
@@ -59,6 +76,21 @@ func (c Config) withDefaults() Config {
 		if c.TileWorkers < 1 {
 			c.TileWorkers = 1
 		}
+	}
+	if c.OceanRefreshEvery == 0 {
+		c.OceanRefreshEvery = time.Hour
+	}
+	if c.HYCOMURL == "" {
+		c.HYCOMURL = ocean.DefaultHYCOMBase
+	}
+	if c.OceanNow == nil {
+		c.OceanNow = func() time.Time { return time.Now().UTC() }
+	}
+	if c.OceanClient == nil {
+		c.OceanClient = &http.Client{Timeout: 90 * time.Second}
+	}
+	if c.OceanFirstRefreshDelay == 0 {
+		c.OceanFirstRefreshDelay = firstRefreshDelay
 	}
 	return c
 }

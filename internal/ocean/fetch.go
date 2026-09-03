@@ -34,25 +34,9 @@ func FetchSnapshot(ctx context.Context, client *http.Client, ep Endpoints, aoi B
 	}
 	retrieved := time.Now().UTC()
 
-	hycomBody, status, err := getCapped(ctx, client, ep.HYCOM, hycomCSVLimit, false)
-	if err != nil {
-		return fmt.Errorf("ocean: fetch hycom: %w", err)
-	}
-	if status != http.StatusOK {
-		return fmt.Errorf("ocean: fetch hycom: HTTP %d", status)
-	}
-	currents, err := ParseHYCOM(bytes.NewReader(hycomBody), Source{
-		Name: "HYCOM",
-		URL:  ep.HYCOM,
-	})
+	currents, err := fetchHYCOM(ctx, client, ep.HYCOM, aoi)
 	if err != nil {
 		return err
-	}
-	if currents.Source.Dataset == "" {
-		currents.Source.Dataset = hycomDatasetFromURL(ep.HYCOM)
-	}
-	if !currents.BBox.Intersects(aoi) {
-		return fmt.Errorf("ocean: fetch hycom: bbox does not intersect AOI")
 	}
 
 	tableBody, status, err := getCapped(ctx, client, ep.StationTable, stationTableLimit, false)
@@ -76,7 +60,9 @@ func FetchSnapshot(ctx context.Context, client *http.Client, ep Endpoints, aoi B
 		Source:    Source{Name: "NDBC", URL: ep.StationTable},
 		Stations:  stations,
 	}
-	return WriteSnapshot(outDir, currents, buoys, retrieved)
+	// A one-shot make-ocean ingest fetches currents and buoys in the same
+	// pass, so both layers were genuinely retrieved at this instant.
+	return WriteSnapshot(outDir, currents, buoys, true, retrieved, &retrieved)
 }
 
 func fetchStations(ctx context.Context, client *http.Client, ep Endpoints, rows []TableRow) ([]Station, error) {

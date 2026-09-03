@@ -37,6 +37,10 @@ gebco:
 	@echo "clipping GEBCO $(GEBCO_YEAR) to the AOI (~350 range requests, no full download)"
 	python3 scripts/fetch-gebco.py --year $(GEBCO_YEAR)
 
+# One-shot seed/refresh of data/ocean; the server's background refresher
+# now re-fetches HYCOM currents on its own ~1h ticker while running, so this
+# target is the seeding and air-gap path (GULF_OCEAN_REFRESH=0), not the
+# only path currents data ever takes.
 ocean:
 	@test -n "$(HYCOM_NCSS)" || (echo "set HYCOM_NCSS to a THREDDS NCSS URL"; exit 2)
 	go run ./cmd/ocean -out data/ocean -hycom-url "$(HYCOM_NCSS)"

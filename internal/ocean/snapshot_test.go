@@ -14,13 +14,14 @@ func TestWriteSnapshotDoesNotClobberOnFailure(t *testing.T) {
 	u0, v0 := 0.1, 0.0
 	good := Currents{ValidTime: time.Now().UTC(), Source: Source{Name: "HYCOM", URL: "x"}, BBox: BBox{West: -2, South: 1, East: -1, North: 2}, NX: 1, NY: 1, Grid: "centers", U: []*float64{&u0}, V: []*float64{&v0}}
 	buoys := Buoys{ValidTime: time.Now().UTC(), Source: Source{Name: "NDBC", URL: "y"}, Stations: nil}
-	if err := WriteSnapshot(dir, good, buoys, time.Now().UTC()); err != nil {
+	retrieved := time.Now().UTC()
+	if err := WriteSnapshot(dir, good, buoys, true, retrieved, &retrieved); err != nil {
 		t.Fatal(err)
 	}
 	prev := readSnapshotFiles(t, dir)
 	bad := good
 	bad.Grid = "edges"
-	if err := WriteSnapshot(dir, bad, buoys, time.Now().UTC()); err == nil {
+	if err := WriteSnapshot(dir, bad, buoys, true, retrieved, &retrieved); err == nil {
 		t.Fatal("expected reject")
 	}
 	assertSnapshotUnchanged(t, dir, prev)
@@ -34,7 +35,8 @@ func TestWriteSnapshotSwapFailureLeavesPreviousSnapshot(t *testing.T) {
 	next := good
 	next.U = []*float64{&u1}
 	buoys := Buoys{ValidTime: time.Now().UTC(), Source: Source{Name: "NDBC", URL: "y"}, Stations: nil}
-	if err := WriteSnapshot(dir, good, buoys, time.Now().UTC()); err != nil {
+	retrieved := time.Now().UTC()
+	if err := WriteSnapshot(dir, good, buoys, true, retrieved, &retrieved); err != nil {
 		t.Fatal(err)
 	}
 	prev := readSnapshotFiles(t, dir)
@@ -50,7 +52,7 @@ func TestWriteSnapshotSwapFailureLeavesPreviousSnapshot(t *testing.T) {
 		return orig(oldpath, newpath)
 	}
 
-	if err := WriteSnapshot(dir, next, buoys, time.Now().UTC()); err == nil {
+	if err := WriteSnapshot(dir, next, buoys, true, retrieved, &retrieved); err == nil {
 		t.Fatal("expected swap failure")
 	}
 	assertSnapshotUnchanged(t, dir, prev)

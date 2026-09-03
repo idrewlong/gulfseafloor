@@ -14,7 +14,7 @@
 
 - Forecast window is **−3 h to +24 h at 3-hourly cadence = 10 steps**.
 - `u`/`v` are **quantized to 3 decimal places** (1 mm/s) everywhere they are serialized.
-- The refresher requests **`accept=csv`**, not `accept=netcdf`. `parseHYCOMNetCDF` reads `times[0]` only and stays single-step; the CSV path is the multi-time path.
+- The refresher requests **`accept=netcdf`, once per forecast step (10 single-time requests), and merges the results.** `accept=csv` was tried against the live service and rejected — NCSS's grid endpoint answers HTTP 400 "Format csv is not supported for Grid data request"; CSV is only valid there for point requests. `parseHYCOMNetCDF` reads `times[0]` only and stays single-step, so the multi-time stack comes from merging N single-time NetCDF responses, not from teaching the parser to index a time dimension.
 - **Nothing fetches on the HTTP request path.** `/api/ocean/currents` answers from memory or disk, always.
 - `GULF_OCEAN_REFRESH` is **on unless `0`**, matching the existing `GULF_AIRCRAFT` convention in `cmd/server/main.go:43`.
 - Legacy single-step `currents.json` must keep decoding. `data/ocean/currents.json` on disk today is that shape.
@@ -704,6 +704,9 @@ func TestRefreshReplacesTheServedStack(t *testing.T) {
 		OceanRefreshEvery:   time.Hour,
 		HYCOMURL:            upstream.URL,
 		OceanClient:         upstream.Client(),
+		// Without this the first refresh is 15s out and the 2s deadline below
+		// can never be met.
+		OceanFirstRefreshDelay: time.Millisecond,
 	})
 
 	waitForSteps(t, h, 2)
@@ -738,11 +741,15 @@ func TestRefreshServesStaleWhenUpstreamFails(t *testing.T) {
 		WebDir:              t.TempDir(),
 		OceanDir:            dir,
 		OceanRefreshEnabled: true,
-		OceanRefreshEvery:   time.Hour,
-		HYCOMURL:            upstream.URL,
-		OceanClient:         upstream.Client(),
+		OceanRefreshEvery:      time.Hour,
+		HYCOMURL:               upstream.URL,
+		OceanClient:            upstream.Client(),
+		OceanFirstRefreshDelay: time.Millisecond,
 	})
 
+	// The refresh must actually be attempted and fail before this proves
+	// anything, so give the goroutine a moment.
+	time.Sleep(50 * time.Millisecond)
 	// The seeded snapshot must still be served, as a lifted one-step stack.
 	waitForSteps(t, h, 1)
 }
@@ -760,6 +767,9 @@ func TestRefreshDisabledMakesNoOutboundRequest(t *testing.T) {
 		OceanRefreshEvery:   time.Millisecond,
 		HYCOMURL:            "https://example.invalid/ncss",
 		OceanClient:         &http.Client{Transport: failingTransport{t: t}},
+		// The refresher would fire immediately if the disabled flag were
+		// ignored. With the default 15s delay this test could not fail.
+		OceanFirstRefreshDelay: time.Millisecond,
 	})
 	time.Sleep(50 * time.Millisecond)
 	waitForSteps(t, h, 1)
@@ -811,6 +821,9 @@ In `internal/server/config.go`, add to `Config`:
 	OceanNow func() time.Time
 	// OceanClient is the refresher's HTTP client. Default: 90s timeout.
 	OceanClient *http.Client
+	// OceanFirstRefreshDelay delays the first refresh after boot so startup
+	// never waits on NCSS. Default: 15s. Tests set it small.
+	OceanFirstRefreshDelay time.Duration
 ```
 
 and in `withDefaults()`:
@@ -827,6 +840,9 @@ and in `withDefaults()`:
 	}
 	if c.OceanClient == nil {
 		c.OceanClient = &http.Client{Timeout: 90 * time.Second}
+	}
+	if c.OceanFirstRefreshDelay == 0 {
+		c.OceanFirstRefreshDelay = firstRefreshDelay
 	}
 ```
 
@@ -893,7 +909,7 @@ func (s *Server) startOceanRefresh(ctx context.Context) {
 		return
 	}
 	go func() {
-		timer := time.NewTimer(firstRefreshDelay)
+		timer := time.NewTimer(s.cfg.OceanFirstRefreshDelay)
 		defer timer.Stop()
 		for {
 			select {
@@ -1899,6 +1915,12 @@ Replace the currents half of the ocean bootstrap:
   let currentsEtag: string | null = null;
   let lastCursor = 0;
 ```
+
+`web/tsconfig.json` sets `noUnusedLocals: true`, so the now-unused import must
+go: change main.ts:30 from `import { velocityGridFromJson } from './overlay/currentsField';`
+to `import { velocityStackFromJson, type VelocityStack } from './overlay/currentsField';`
+and add `import { interpolateGrid } from './overlay/currentsTime';`. Leaving the old
+import in place fails `npm run build`.
 
 In the bootstrap, replace `velocityGridFromJson(currentsRaw)` with:
 

@@ -1,14 +1,14 @@
 import * as THREE from 'three';
 import { AOI, ORIGIN, lonLatToLocal } from '../geo';
+import { FLOW_SCALE, PARTICLE_MAX_AGE, TRAIL_LAG_SEC, type VelocityGrid } from './currentsField';
 import {
-  FLOW_SCALE,
-  PARTICLE_MAX_AGE,
-  TRAIL_LAG_SEC,
-  advect,
-  staticArrows,
-  type VelocityGrid,
-} from './currentsField';
-import { makePointGeometry, makeTrailGeometry } from './currentsGpu';
+  disposeObject3D,
+  makePointGeometry,
+  makeStaticArrows,
+  makeTrailGeometry,
+  TRAIL_SEGMENTS,
+} from './currentsGpu';
+import { SPEED_MAX_MS } from './speedRamp';
 import advectFrag from './shaders/advect.frag.glsl?raw';
 import trailVert from './shaders/trail.vert.glsl?raw';
 import trailFrag from './shaders/trail.frag.glsl?raw';
@@ -17,8 +17,6 @@ import particleFrag from './shaders/particle.frag.glsl?raw';
 
 const STATE_W = 128;
 const STATE_H = 64;
-const LIFT_Z = 18;
-const TRAIL_CYAN = 0x8cc7d1;
 
 const ADVECT_VERT = `precision highp float;
 void main() {
@@ -26,10 +24,11 @@ void main() {
 }
 `;
 
-export { detectFloatOk, makePointGeometry, makeTrailGeometry } from './currentsGpu';
+export { detectFloatOk, makePointGeometry, makeStaticArrows, makeTrailGeometry } from './currentsGpu';
 
 export type CurrentsHandle = {
   setEnabled(on: boolean): void;
+  setGrid(grid: VelocityGrid): void;
   tick(dtSec: number): void;
   setReducedMotion(on: boolean): void;
   destroy(): void;
@@ -74,6 +73,7 @@ function overlayStateUniforms(
     uGridNorth: { value: grid.bbox.north },
     uFlowScale: { value: FLOW_SCALE },
     uTrailLag: { value: TRAIL_LAG_SEC },
+    uSpeedMax: { value: SPEED_MAX_MS },
   };
 }
 
@@ -137,32 +137,6 @@ function makeStateRT(): THREE.WebGLRenderTarget {
   return rt;
 }
 
-export function makeStaticArrows(grid: VelocityGrid): THREE.Group {
-  const group = new THREE.Group();
-  group.name = 'currents-arrows';
-  const pts: number[] = [];
-  for (const a of staticArrows(grid)) {
-    const a0 = lonLatToLocal(a.lon, a.lat);
-    const next = advect(a.lon, a.lat, a.u, a.v, TRAIL_LAG_SEC, FLOW_SCALE);
-    const a1 = lonLatToLocal(next.lon, next.lat);
-    pts.push(a0.x, a0.y, LIFT_Z, a1.x, a1.y, LIFT_Z);
-  }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
-  const mat = new THREE.LineBasicMaterial({
-    color: TRAIL_CYAN,
-    transparent: true,
-    opacity: 0.7,
-    depthTest: false,
-    depthWrite: false,
-  });
-  const lines = new THREE.LineSegments(geo, mat);
-  lines.frustumCulled = false;
-  lines.renderOrder = 4;
-  group.add(lines);
-  return group;
-}
-
 function makeGpu(grid: VelocityGrid): GpuSim {
   const mPerDeg = metresPerDegree();
   const velTex = velocityTexture(grid);
@@ -196,7 +170,8 @@ function makeGpu(grid: VelocityGrid): GpuSim {
   const trailGeo = makeTrailGeometry();
   const trailMat = new THREE.ShaderMaterial({
     uniforms: overlayStateUniforms(grid, velTex, stateTex, mPerDeg),
-    vertexShader: trailVert,
+    // TRAIL_STEPS must match TRAIL_SEGMENTS: it bounds the back-integration loop per vertex.
+    vertexShader: `#define TRAIL_STEPS ${TRAIL_SEGMENTS}\n${trailVert}`,
     fragmentShader: trailFrag,
     transparent: true,
     depthTest: false,
@@ -211,8 +186,7 @@ function makeGpu(grid: VelocityGrid): GpuSim {
   const pointGeo = makePointGeometry();
   const pointMat = new THREE.ShaderMaterial({
     uniforms: {
-      uStatePos: { value: stateTex },
-      uStateSize: { value: new THREE.Vector2(STATE_W, STATE_H) },
+      ...overlayStateUniforms(grid, velTex, stateTex, mPerDeg),
       uPointSize: { value: 8 },
     },
     vertexShader: particleVert,
@@ -263,24 +237,6 @@ function disposeGpu(gpu: GpuSim): void {
   }
 }
 
-function disposeObject3D(root: THREE.Object3D): void {
-  root.traverse((obj) => {
-    const mesh = obj as THREE.Mesh;
-    if (!mesh.geometry || mesh.material == null) {
-      return;
-    }
-    mesh.geometry.dispose();
-    const mat = mesh.material;
-    if (Array.isArray(mat)) {
-      for (const m of mat) {
-        m.dispose();
-      }
-    } else {
-      mat.dispose();
-    }
-  });
-}
-
 export function mountCurrents(
   scene: THREE.Scene,
   grid: VelocityGrid,
@@ -288,7 +244,7 @@ export function mountCurrents(
 ): CurrentsHandle {
   const group = new THREE.Group();
   group.name = 'currents';
-  const arrows = makeStaticArrows(grid);
+  let arrows = makeStaticArrows(grid);
   group.add(arrows);
 
   const gpu = opts.floatOk ? makeGpu(grid) : null;
@@ -363,6 +319,29 @@ export function mountCurrents(
       if (!on) {
         pendingDt = 0;
       }
+    },
+    setGrid(grid: VelocityGrid): void {
+      if (gpu) {
+        const data = gpu.velTex.image.data as Float32Array;
+        const n = grid.nx * grid.ny;
+        for (let i = 0; i < n; i++) {
+          const u = grid.u[i];
+          const v = grid.v[i];
+          const o = i * 4;
+          const ok = u != null && v != null;
+          data[o] = ok ? u : 0;
+          data[o + 1] = ok ? v : 0;
+          data[o + 2] = ok ? 1 : 0;
+          data[o + 3] = ok ? 1 : 0;
+        }
+        gpu.velTex.needsUpdate = true;
+      }
+      // Arrows are baked geometry, so they are rebuilt rather than updated.
+      group.remove(arrows);
+      disposeObject3D(arrows);
+      arrows = makeStaticArrows(grid);
+      group.add(arrows);
+      syncVisibility();
     },
     tick(dtSec: number): void {
       if (!enabled || !group.visible || useStatic()) {

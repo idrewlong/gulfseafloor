@@ -8,6 +8,9 @@ data/soundings/
 *.tif
 *.h5
 *.nc
+# ...except the vendored HYCOM NetCDF fixtures: tests os.Open() them, and
+# CI runs `go test ./...`, so they must actually be tracked.
+!internal/ocean/testdata/*.nc
 
 # Node
 web/node_modules/

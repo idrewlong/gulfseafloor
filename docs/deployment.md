@@ -1,8 +1,12 @@
 # Deployment
 
-Three environments, one binary. The serve path has no outbound
-network calls. GDAL, when used, stays on the machine or image that
-builds tiles.
+Three environments, one binary. By default the serve path makes two
+kinds of outbound call: a scheduled HYCOM currents refresh on a ~1h
+ticker, and an on-demand aircraft fetch per client request to
+`/api/aircraft`. Both are opt-out — `GULF_OCEAN_REFRESH=0` and
+`GULF_AIRCRAFT=0` — and setting both is what restores a serve path
+with no outbound network calls. GDAL, when used, stays on the machine
+or image that builds tiles.
 
 ---
 
@@ -82,7 +86,14 @@ Label it as derived. Do not commit the rasters (`data/raw/`,
 
 Unplug the network after the binary and tiles are on disk. The
 serve process should continue. That is the local air-gap check;
-it is not a cluster air-gap check.
+it is not a cluster air-gap check. With `GULF_OCEAN_REFRESH` and
+`GULF_AIRCRAFT` unset, this check does not prove zero egress: the
+process keeps serving the last good currents snapshot while its
+background refresh ticker fails silently every ~1h, and keeps serving
+the last good aircraft response for up to 60s past disconnect (then
+404s) while each client request retries the dead feed. For a genuine
+no-egress check, set `GULF_OCEAN_REFRESH=0` and `GULF_AIRCRAFT=0`
+before unplugging.
 
 ---
 

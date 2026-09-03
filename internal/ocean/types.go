@@ -17,17 +17,29 @@ type Source struct {
 	URL     string `json:"url"`
 }
 
-// Currents is a surface velocity grid (u eastward, v northward, m/s).
-// U and V are row-major, west-to-east, south-to-north; nil cells are missing.
-type Currents struct {
+// Step is one forecast time of the surface velocity grid. U and V are
+// row-major, west-to-east, south-to-north; nil cells are missing.
+type Step struct {
 	ValidTime time.Time  `json:"validTime"`
-	Source    Source     `json:"source"`
-	BBox      BBox       `json:"bbox"`
-	NX        int        `json:"nx"`
-	NY        int        `json:"ny"`
-	Grid      string     `json:"grid"`
 	U         []*float64 `json:"u"`
 	V         []*float64 `json:"v"`
+}
+
+// Currents is a stack of surface velocity grids (u eastward, v northward,
+// m/s) sharing one bbox and shape. ValidTime is the first step.
+type Currents struct {
+	ValidTime time.Time `json:"validTime"`
+	Source    Source    `json:"source"`
+	BBox      BBox      `json:"bbox"`
+	NX        int       `json:"nx"`
+	NY        int       `json:"ny"`
+	Grid      string    `json:"grid"`
+	Steps     []Step    `json:"steps"`
+
+	// U and V are the legacy single-step fields. They are decode-only:
+	// DecodeCurrents lifts them into Steps and they are never marshalled.
+	U []*float64 `json:"u,omitempty"`
+	V []*float64 `json:"v,omitempty"`
 }
 
 // Station is one NDBC observation. Optional numeric fields are omitted or null
@@ -57,6 +69,12 @@ type LayerInfo struct {
 	Present   bool       `json:"present"`
 	ValidTime *time.Time `json:"validTime"`
 	Count     int        `json:"count"`
+	// RetrievedAt is when this layer was actually fetched from its upstream.
+	// Optional and independent of the top-level Manifest.RetrievedAt: the
+	// currents refresher and the buoys ingest (`make ocean`) run on
+	// decoupled schedules, so one timestamp cannot honestly describe both.
+	// Nil when unknown (e.g. a manifest written before this field existed).
+	RetrievedAt *time.Time `json:"retrievedAt,omitempty"`
 }
 
 // Manifest is the inventory of files under data/ocean/.
