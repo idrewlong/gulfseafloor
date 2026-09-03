@@ -25,7 +25,6 @@ export type SharedTerrainUniforms = {
   uExaggeration: { value: number };
   uFogColor: { value: THREE.Color };
   uFogDensity: { value: number };
-  uImageryOpacity: { value: number };
 };
 
 let sharedGeometry: THREE.BufferGeometry | null = null;
@@ -123,51 +122,6 @@ function heightTextureFromHeights(heights: ImageData): THREE.DataTexture {
   return tex;
 }
 
-function imageryTextureFromBitmap(bitmap: ImageBitmap): THREE.Texture {
-  const tex = new THREE.Texture(bitmap);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.magFilter = THREE.LinearFilter;
-  tex.minFilter = THREE.LinearMipmapLinearFilter;
-  tex.generateMipmaps = true;
-  tex.anisotropy = THREE.Texture.DEFAULT_ANISOTROPY;
-  tex.flipY = true;
-  tex.wrapS = THREE.ClampToEdgeWrapping;
-  tex.wrapT = THREE.ClampToEdgeWrapping;
-  tex.needsUpdate = true;
-  return tex;
-}
-
-async function fetchImageryBitmap(t: TileCoord): Promise<ImageBitmap | null> {
-  for (let attempt = 0; attempt < 2; attempt++) {
-    let res: Response;
-    try {
-      res = await fetch(`/imagery/${t.z}/${t.x}/${t.y}.jpg`);
-    } catch {
-      continue;
-    }
-    if (!res.ok) {
-      continue;
-    }
-    try {
-      const blob = await res.blob();
-      if (blob.size === 0) {
-        continue;
-      }
-      return await createImageBitmap(blob);
-    } catch {
-      continue;
-    }
-  }
-  return null;
-}
-
-function emptyImageryTexture(): THREE.DataTexture {
-  const tex = new THREE.DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.needsUpdate = true;
-  return tex;
-}
-
 function imageDataFromBitmap(bitmap: ImageBitmap): ImageData {
   const canvas = document.createElement('canvas');
   canvas.width = bitmap.width;
@@ -188,10 +142,8 @@ export class TerrainTile {
 
   private readonly material: THREE.ShaderMaterial;
   private readonly texture: THREE.Texture;
-  private imagery: THREE.Texture;
   private readonly heights: ImageData;
   private readonly uvRect: ReturnType<typeof heightUvRect>;
-  private imageryState: 'idle' | 'loading' | 'ready' | 'missing' = 'idle';
 
   constructor(
     coord: TileCoord,
@@ -204,7 +156,6 @@ export class TerrainTile {
     this.heights = imageDataFromBitmap(bitmap);
     bitmap.close();
     this.texture = heightTextureFromHeights(this.heights);
-    this.imagery = emptyImageryTexture();
 
     const bounds = tileBounds(coord);
     this.clip = intersectBBox(bounds, aoi) ?? bounds;
@@ -237,9 +188,6 @@ export class TerrainTile {
         uExaggeration: shared.uExaggeration,
         uFogColor: shared.uFogColor,
         uFogDensity: shared.uFogDensity,
-        uImageryTex: { value: this.imagery },
-        uImageryOpacity: shared.uImageryOpacity,
-        uHasImagery: { value: 0 },
       },
       vertexShader: vert,
       fragmentShader: frag,
@@ -251,54 +199,6 @@ export class TerrainTile {
     this.mesh.scale.set(width, height, this.span);
     this.mesh.frustumCulled = false;
     this.mesh.userData.tile = this;
-  }
-
-  private disposed = false;
-
-  hasImagery(): boolean {
-    return this.imageryState === 'ready';
-  }
-
-  imageryBusy(): boolean {
-    return this.imageryState === 'loading';
-  }
-
-  imageryFailed(): boolean {
-    return this.imageryState === 'missing';
-  }
-
-  allowImageryRetry(): void {
-    if (this.imageryState === 'missing') {
-      this.imageryState = 'idle';
-    }
-  }
-
-  async ensureImagery(): Promise<boolean> {
-    if (this.disposed || this.imageryState === 'ready') {
-      return this.imageryState === 'ready';
-    }
-    if (this.imageryState === 'missing' || this.imageryState === 'loading') {
-      return false;
-    }
-    this.imageryState = 'loading';
-    const bitmap = await fetchImageryBitmap(this.coord);
-    if (this.disposed) {
-      if (bitmap) {
-        bitmap.close();
-      }
-      return false;
-    }
-    if (!bitmap) {
-      this.imageryState = 'missing';
-      return false;
-    }
-    const next = imageryTextureFromBitmap(bitmap);
-    this.imagery.dispose();
-    this.imagery = next;
-    this.material.uniforms.uImageryTex.value = next;
-    this.material.uniforms.uHasImagery.value = 1;
-    this.imageryState = 'ready';
-    return true;
   }
 
   /**
@@ -330,11 +230,9 @@ export class TerrainTile {
   }
 
   dispose(): void {
-    this.disposed = true;
     this.mesh.removeFromParent();
     this.material.dispose();
     this.texture.dispose();
-    this.imagery.dispose();
     const img = this.texture.image as ImageBitmap | HTMLImageElement | undefined;
     if (img && typeof ImageBitmap !== 'undefined' && img instanceof ImageBitmap) {
       img.close();

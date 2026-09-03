@@ -332,7 +332,6 @@ async function start(): Promise<void> {
     uExaggeration: { value: DEFAULT_EXAGGERATION },
     uFogColor: { value: fogColor },
     uFogDensity: { value: 0.0000032 },
-    uImageryOpacity: { value: 0 },
   };
 
   const renderer = new THREE.WebGLRenderer({
@@ -388,7 +387,6 @@ async function start(): Promise<void> {
     maxZoom,
     dataVersion: manifest?.dataVersion,
   });
-  lod.setImageryOpacity(0);
   addCoastOverlay(scene);
   mountLocator(locatorRoot);
   const labels = mountLabels(labelsRoot);
@@ -557,7 +555,6 @@ async function start(): Promise<void> {
       exaggeration = state.exaggeration;
       shared.uExaggeration.value = state.exaggeration;
       shared.uContourInterval.value = state.contourInterval;
-      lod.setImageryOpacity(0);
       applySun(sunDir, state.sunAzimuth, state.sunAltitude);
       oceanOn = { currents: state.currents, buoys: state.buoys };
       const aircraftWasOn = aircraftOn;

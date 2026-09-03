@@ -18,11 +18,6 @@ type Config struct {
 	CORSOrigin string
 	// TileWorkers bounds concurrent tile disk I/O. Default: GOMAXPROCS.
 	TileWorkers int
-	// ImageryEnabled proxies public XYZ satellite tiles. Default: true.
-	// Set false (GULF_IMAGERY=0) for air-gap — the handler 404s.
-	ImageryEnabled bool
-	// ImageryTemplate is fmt.Sprintf'd with (z, y, x). Empty → Esri World Imagery.
-	ImageryTemplate string
 	// OceanDir is the snapshot JSON root (currents.json, buoys.json, manifest.json).
 	// Default: data/ocean. Missing files are not a startup failure.
 	OceanDir string

@@ -12,9 +12,6 @@ uniform float uTileSpanMeters;
 uniform float uTileSpanY;
 uniform vec3  uFogColor;
 uniform float uFogDensity;
-uniform sampler2D uImageryTex;
-uniform float uImageryOpacity;
-uniform float uHasImagery;
 
 in vec2  vUv;
 in float vElevation;
@@ -109,13 +106,6 @@ void main() {
   color += vec3(0.82, 0.90, 0.92) * spec;
   color += uFogColor * fresnel * mix(0.12, 0.05, land);
   color *= mix(1.0, 0.97, vSkirt);
-
-  if (uImageryOpacity > 0.001 && uHasImagery > 0.5) {
-    vec3 img = texture(uImageryTex, vUv).rgb;
-    vec3 draped = img * (0.68 + 0.32 * shade);
-    float amt = clamp(uImageryOpacity, 0.0, 1.0);
-    color = mix(color, draped, amt);
-  }
 
   if (uContourInterval > 0.0) {
     float f  = elev / uContourInterval;

@@ -12,12 +12,10 @@ import {
   type TileCoord,
 } from '../geo';
 import { marchHeightfield } from './pick';
-import { frustumLayerReady, satelliteVisible, viewTargetZoom } from './lodPolicy';
+import { frustumLayerReady, viewTargetZoom } from './lodPolicy';
 import { TerrainTile, type SharedTerrainUniforms } from './TerrainTile';
 
 const MAX_INFLIGHT = 16;
-const MAX_IMAGERY_INFLIGHT = 10;
-const MAX_IMAGERY_RETRIES = 2;
 
 /**
  * Zooms up to here stay resident for the whole AOI, so there is always a
@@ -25,10 +23,10 @@ const MAX_IMAGERY_RETRIES = 2;
  */
 const BASE_ZOOM = 10;
 /**
- * Textures held above the base pyramid. Each tile costs a height texture, an
- * imagery texture with mipmaps and a CPU copy of the heights for picking, so
- * the whole AOI cannot be resident at the finest zooms — z14 alone is ~8600
- * tiles. Least-recently-wanted tiles are evicted past this.
+ * Textures held above the base pyramid. Each tile costs a height texture and a
+ * CPU copy of the heights for picking, so the whole AOI cannot be resident at
+ * the finest zooms — z14 alone is ~8600 tiles. Least-recently-wanted tiles are
+ * evicted past this.
  */
 const TILE_BUDGET = 180;
 
@@ -144,14 +142,7 @@ export class QuadtreeLOD {
   private readonly nodes = new Map<string, LodNode>();
   private inflight = 0;
   private queued: LodNode[] = [];
-  private imgInflight = 0;
-  private imgQueued: LodNode[] = [];
-  private imgQueuedKeys = new Set<string>();
   private readyCount = 0;
-  private wantImagery = false;
-  private userImageryOpacity = 0;
-  private imageryLayerOn = false;
-  private imageryRetries = new Map<string, number>();
   private readonly tileVersion: string;
 
   private frame = 0;
@@ -199,29 +190,6 @@ export class QuadtreeLOD {
     return this.readyCount > 0;
   }
 
-  setImageryEnabled(on: boolean): void {
-    this.wantImagery = on;
-    if (on) {
-      // The layer gate now holds the whole drape off while any visible tile has
-      // failed, so a tile that burned through MAX_IMAGERY_RETRIES would keep
-      // satellite dark for the rest of the session. Toggling the control is an
-      // explicit user gesture, not a render loop, so re-arm the budget here.
-      this.imageryRetries.clear();
-      for (const node of this.nodes.values()) {
-        if (node.state === 'ready') {
-          this.enqueueImagery(node);
-        }
-      }
-      this.drainImagery();
-    }
-    this.applyImageryGate();
-  }
-
-  setImageryOpacity(opacity: number): void {
-    this.userImageryOpacity = opacity;
-    this.setImageryEnabled(opacity > 0);
-  }
-
   /** Loads the resident base pyramid. Finer zooms stream in from update(). */
   async bootstrap(): Promise<void> {
     const waiting: LodNode[] = [];
@@ -233,7 +201,6 @@ export class QuadtreeLOD {
     }
     await Promise.all(waiting.map((n) => this.waitFor(n)));
     this.showLayer(this.baseZoom);
-    this.drainImagery();
   }
 
   update(camera: THREE.PerspectiveCamera, viewportHeight: number): void {
@@ -258,9 +225,6 @@ export class QuadtreeLOD {
         if (node.state === 'pending') {
           this.enqueue(node);
         }
-        if (node.state === 'ready') {
-          this.enqueueImagery(node);
-        }
       }
     }
 
@@ -282,8 +246,6 @@ export class QuadtreeLOD {
     }
 
     this.drainQueue();
-    this.drainImagery();
-    this.applyImageryGate();
     this.evict();
   }
 
@@ -359,20 +321,7 @@ export class QuadtreeLOD {
       }
       node.tile.mesh.visible = true;
       this.visible.push(node);
-      this.enqueueImagery(node);
     }
-  }
-
-  private applyImageryGate(): void {
-    const visible = this.visible
-      .filter((n) => n.tile)
-      .map((n) => ({
-        hasImagery: n.tile?.hasImagery() ?? false,
-        imageryFailed: n.tile?.imageryFailed() ?? false,
-      }));
-    const on = satelliteVisible(visible, this.wantImagery, this.imageryLayerOn);
-    this.imageryLayerOn = on;
-    this.shared.uImageryOpacity.value = on ? this.userImageryOpacity : 0;
   }
 
   /** Bootstrap fallback before the first update() has a camera to measure. */
@@ -406,8 +355,6 @@ export class QuadtreeLOD {
       node.tile = null;
       node.state = 'pending';
       this.readyCount -= 1;
-      this.imgQueuedKeys.delete(node.key);
-      this.imageryRetries.delete(node.key);
     }
   }
 
@@ -442,7 +389,6 @@ export class QuadtreeLOD {
           return;
         }
         this.drainQueue();
-        this.drainImagery();
         requestAnimationFrame(tick);
       };
       tick();
@@ -470,78 +416,5 @@ export class QuadtreeLOD {
     node.state = 'ready';
     this.readyCount += 1;
     this.group.add(tile.mesh);
-    this.enqueueImagery(node);
-  }
-
-  private enqueueImagery(node: LodNode): void {
-    if (!this.wantImagery || node.state !== 'ready' || !node.tile) {
-      return;
-    }
-    if (node.tile.hasImagery() || node.tile.imageryBusy()) {
-      return;
-    }
-    if (node.tile.imageryFailed()) {
-      if ((this.imageryRetries.get(node.key) ?? 0) >= MAX_IMAGERY_RETRIES) {
-        return;
-      }
-    }
-    if (this.imgQueuedKeys.has(node.key)) {
-      return;
-    }
-    this.imgQueuedKeys.add(node.key);
-    this.imgQueued.push(node);
-  }
-
-  private drainImagery(): void {
-    if (!this.wantImagery) {
-      return;
-    }
-    this.imgQueued = this.imgQueued.filter((n) => {
-      if (!n.tile || n.tile.hasImagery() || n.tile.imageryBusy()) {
-        this.imgQueuedKeys.delete(n.key);
-        return false;
-      }
-      if (n.lastWanted === this.frame) {
-        return true;
-      }
-      this.imgQueuedKeys.delete(n.key);
-      return false;
-    });
-    this.imgQueued.sort((a, b) => {
-      const av = a.tile?.mesh.visible ? 0 : 1;
-      const bv = b.tile?.mesh.visible ? 0 : 1;
-      if (av !== bv) {
-        return av - bv;
-      }
-      return a.coord.z - b.coord.z;
-    });
-    while (this.imgInflight < MAX_IMAGERY_INFLIGHT && this.imgQueued.length > 0) {
-      const node = this.imgQueued.shift();
-      if (!node) {
-        break;
-      }
-      this.imgQueuedKeys.delete(node.key);
-      void this.loadImagery(node);
-    }
-  }
-
-  private async loadImagery(node: LodNode): Promise<void> {
-    if (!this.wantImagery || !node.tile || node.tile.hasImagery()) {
-      return;
-    }
-    if (node.tile.imageryFailed()) {
-      const tries = this.imageryRetries.get(node.key) ?? 0;
-      if (tries >= MAX_IMAGERY_RETRIES) {
-        return;
-      }
-      this.imageryRetries.set(node.key, tries + 1);
-      node.tile.allowImageryRetry();
-    }
-    this.imgInflight += 1;
-    try {
-      await node.tile.ensureImagery();
-    } finally {
-      this.imgInflight -= 1;
-    }
   }
 }

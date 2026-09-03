@@ -28,7 +28,6 @@ func New(cfg Config) http.Handler {
 
 	mux := http.NewServeMux()
 	mux.Handle("/tiles/", http.HandlerFunc(s.handleTile))
-	mux.Handle("/imagery/", http.HandlerFunc(s.handleImagery))
 	mux.Handle("/soundings/", http.HandlerFunc(handleSoundings))
 	mux.HandleFunc("/api/depth", s.handleDepth)
 	mux.HandleFunc("/api/manifest", s.handleManifest)

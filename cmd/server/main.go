@@ -39,8 +39,6 @@ func main() {
 		Embed:           webFS,
 		CORSOrigin:      os.Getenv("GULF_CORS_ORIGIN"),
 		TileWorkers:     envInt("GULF_TILE_WORKERS", 0),
-		ImageryEnabled:  os.Getenv("GULF_IMAGERY") != "0",
-		ImageryTemplate: os.Getenv("GULF_IMAGERY_URL"),
 		OceanDir:        env("GULF_OCEAN_DIR", "data/ocean"),
 		AircraftEnabled: os.Getenv("GULF_AIRCRAFT") != "0",
 		OpenSkyURL:      os.Getenv("GULF_OPENSKY_URL"),

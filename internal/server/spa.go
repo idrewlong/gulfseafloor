@@ -13,7 +13,6 @@ import (
 
 var reservedPrefixes = []string{
 	"/tiles/",
-	"/imagery/",
 	"/api/",
 	"/healthz",
 	"/readyz",

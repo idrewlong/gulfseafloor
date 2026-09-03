@@ -3,21 +3,16 @@ import { describe, it } from 'node:test';
 import {
   canRefine,
   frustumLayerReady,
-  imageryLayerReady,
   isDisplayReady,
-  satelliteVisible,
   viewTargetZoom,
 } from './lodPolicy.ts';
 
 const heightReady = {
   state: 'ready' as const,
-  wantImagery: true,
-  hasImagery: false,
-  imageryFailed: false,
 };
 
 describe('isDisplayReady', () => {
-  it('draws a height-ready tile even if satellite is still in flight', () => {
+  it('draws a tile once its height texture is resident', () => {
     assert.equal(isDisplayReady(heightReady), true);
   });
 
@@ -29,122 +24,17 @@ describe('isDisplayReady', () => {
 
 describe('canRefine', () => {
   it('holds the parent while any child is still loading height', () => {
-    const ready = { ...heightReady, hasImagery: true };
     const loading = { ...heightReady, state: 'loading' as const };
-    assert.equal(canRefine([ready, ready, ready, loading]), false);
+    assert.equal(canRefine([heightReady, heightReady, heightReady, loading]), false);
   });
 
-  it('refines once every child has height — imagery is gated separately', () => {
+  it('refines once every child has height', () => {
     assert.equal(canRefine([heightReady, heightReady, heightReady, heightReady]), true);
   });
 
   it('holds the parent when a child 404s so a hole does not open', () => {
     const missing = { ...heightReady, state: 'missing' as const };
     assert.equal(canRefine([heightReady, heightReady, heightReady, missing]), false);
-  });
-});
-
-describe('imageryLayerReady', () => {
-  it('keeps satellite off until every visible tile has a texture', () => {
-    assert.equal(
-      imageryLayerReady(
-        [
-          { hasImagery: true, imageryFailed: false },
-          { hasImagery: false, imageryFailed: false },
-        ],
-        true,
-      ),
-      false,
-    );
-  });
-
-  it('turns satellite on together so tiles do not quilt', () => {
-    assert.equal(
-      imageryLayerReady(
-        [
-          { hasImagery: true, imageryFailed: false },
-          { hasImagery: true, imageryFailed: false },
-        ],
-        true,
-      ),
-      true,
-    );
-  });
-
-  // A failed tile used to satisfy the gate, so the drape switched on globally
-  // while that tile kept uHasImagery = 0 and rendered as a hypsometric
-  // rectangle in the middle of the satellite layer.
-  it('does not let a failed tile stand in for a texture', () => {
-    assert.equal(
-      imageryLayerReady(
-        [
-          { hasImagery: true, imageryFailed: false },
-          { hasImagery: false, imageryFailed: true },
-        ],
-        true,
-      ),
-      false,
-    );
-  });
-});
-
-describe('satelliteVisible', () => {
-  it('stays on while a newly refined tile is still fetching, so zoom does not flash', () => {
-    assert.equal(
-      satelliteVisible(
-        [
-          { hasImagery: true, imageryFailed: false },
-          { hasImagery: false, imageryFailed: false },
-        ],
-        true,
-        true,
-      ),
-      true,
-    );
-  });
-
-  // Stickiness was unconditional, so one failed tile painted a permanent
-  // wrong-coloured rectangle that survived every later frame.
-  it('drops the drape when a visible tile has failed, rather than holing it', () => {
-    assert.equal(
-      satelliteVisible(
-        [
-          { hasImagery: true, imageryFailed: false },
-          { hasImagery: false, imageryFailed: true },
-        ],
-        true,
-        true,
-      ),
-      false,
-    );
-  });
-
-  it('comes back on once the failed tile recovers its texture', () => {
-    assert.equal(
-      satelliteVisible(
-        [
-          { hasImagery: true, imageryFailed: false },
-          { hasImagery: true, imageryFailed: false },
-        ],
-        true,
-        false,
-      ),
-      true,
-    );
-  });
-
-  it('stays off while the layer is still filling in for the first time', () => {
-    assert.equal(
-      satelliteVisible(
-        [
-          { hasImagery: true, imageryFailed: false },
-          { hasImagery: false, imageryFailed: false },
-        ],
-        true,
-        false,
-      ),
-      false,
-    );
   });
 });
 
