@@ -86,7 +86,7 @@ func (s *Server) handleDepth(w http.ResponseWriter, r *http.Request) {
 			ElevationM: elev,
 			Nodata:     elev <= nodataThreshold,
 			Tile:       t.String(),
-			Encoding:   "terrarium",
+			Encoding:   "terrain-rgb",
 		})
 		return
 	}

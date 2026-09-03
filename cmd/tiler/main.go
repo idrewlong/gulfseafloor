@@ -1,10 +1,12 @@
-// tiler writes a Terrarium-encoded XYZ tile pyramid.
+// tiler writes a terrain-RGB-encoded XYZ tile pyramid.
 //
 //	tiler synth -out data/tiles -zmin 6 -zmax 14
 //
-// The synthetic surface is a Mississippi Bight stand-in so the
-// viewer runs with the network unplugged. Real NOAA rasters go through
-// scripts/build-tiles.sh (GDAL) when available.
+// The surface is GEBCO 2024 on the open shelf and a procedural stand-in
+// inside the Sound, the bays and the lagoons, where GEBCO's 460 m cells do
+// not resolve the water. The GEBCO clip is vendored, so this runs with the
+// network unplugged. Real NOAA rasters go through scripts/build-tiles.sh
+// (GDAL) when available.
 package main
 
 import (
@@ -129,11 +131,26 @@ func writeTile(root string, t tiles.Tile, size int) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
+	// Write to a scratch name and rename into place. os.Create truncates the
+	// destination first, so an in-place write is visible to a reader while it
+	// is still short — and the server reads this directory live. Rename within
+	// one directory is atomic, so a reader gets the old tile or the new one.
 	path := filepath.Join(dir, fmt.Sprintf("%d.png", t.Y))
-	f, err := os.Create(path)
+	f, err := os.CreateTemp(dir, fmt.Sprintf(".%d.png.*", t.Y))
 	if err != nil {
 		return err
 	}
-	defer f.Close()
-	return png.Encode(f, img)
+	tmp := f.Name()
+	defer func() {
+		// No-op once the rename has happened.
+		_ = os.Remove(tmp)
+	}()
+	if err := png.Encode(f, img); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }

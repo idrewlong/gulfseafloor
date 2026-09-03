@@ -61,7 +61,13 @@ export function frustumLayerReady(states: NodeLoadState[]): boolean {
   return states.every((s) => s === 'ready');
 }
 
-/** Gate the satellite layer so every visible tile switches together instead of quilting. */
+/**
+ * Gate the satellite layer so every visible tile switches together instead of
+ * quilting. A tile that failed to fetch does not count: the drape opacity is
+ * one shared uniform but uHasImagery is per-tile, so letting a failure satisfy
+ * the gate switches the layer on globally and leaves that tile rendering the
+ * hypsometric tint as a rectangle inside the imagery.
+ */
 export function imageryLayerReady(
   visible: Array<{ hasImagery: boolean; imageryFailed: boolean }>,
   wantImagery: boolean,
@@ -69,16 +75,28 @@ export function imageryLayerReady(
   if (!wantImagery || visible.length === 0) {
     return false;
   }
-  return visible.every((t) => t.hasImagery || t.imageryFailed);
+  return visible.every((t) => t.hasImagery);
 }
 
-/** After the first complete satellite layer, keep it on so LOD swaps do not flash the hypsometric tint. */
+/**
+ * After the first complete satellite layer, keep it on so LOD swaps do not
+ * flash the hypsometric tint — a refined tile whose imagery is still in flight
+ * holes over for a frame or two and then fills.
+ *
+ * A *failed* tile is different: it never fills, so holding the drape on would
+ * leave that hole on screen for the rest of the session. Drop the whole layer
+ * instead and let the retry path bring it back, so the chart is either fully
+ * draped or fully hypsometric and never a mix of the two.
+ */
 export function satelliteVisible(
   visible: Array<{ hasImagery: boolean; imageryFailed: boolean }>,
   wantImagery: boolean,
   alreadyOn: boolean,
 ): boolean {
   if (!wantImagery) {
+    return false;
+  }
+  if (visible.some((t) => t.imageryFailed)) {
     return false;
   }
   if (alreadyOn) {

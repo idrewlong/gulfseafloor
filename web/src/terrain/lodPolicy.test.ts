@@ -70,10 +70,26 @@ describe('imageryLayerReady', () => {
       true,
     );
   });
+
+  // A failed tile used to satisfy the gate, so the drape switched on globally
+  // while that tile kept uHasImagery = 0 and rendered as a hypsometric
+  // rectangle in the middle of the satellite layer.
+  it('does not let a failed tile stand in for a texture', () => {
+    assert.equal(
+      imageryLayerReady(
+        [
+          { hasImagery: true, imageryFailed: false },
+          { hasImagery: false, imageryFailed: true },
+        ],
+        true,
+      ),
+      false,
+    );
+  });
 });
 
 describe('satelliteVisible', () => {
-  it('stays on after the first complete layer so zoom does not flash hypsometric', () => {
+  it('stays on while a newly refined tile is still fetching, so zoom does not flash', () => {
     assert.equal(
       satelliteVisible(
         [
@@ -84,6 +100,50 @@ describe('satelliteVisible', () => {
         true,
       ),
       true,
+    );
+  });
+
+  // Stickiness was unconditional, so one failed tile painted a permanent
+  // wrong-coloured rectangle that survived every later frame.
+  it('drops the drape when a visible tile has failed, rather than holing it', () => {
+    assert.equal(
+      satelliteVisible(
+        [
+          { hasImagery: true, imageryFailed: false },
+          { hasImagery: false, imageryFailed: true },
+        ],
+        true,
+        true,
+      ),
+      false,
+    );
+  });
+
+  it('comes back on once the failed tile recovers its texture', () => {
+    assert.equal(
+      satelliteVisible(
+        [
+          { hasImagery: true, imageryFailed: false },
+          { hasImagery: true, imageryFailed: false },
+        ],
+        true,
+        false,
+      ),
+      true,
+    );
+  });
+
+  it('stays off while the layer is still filling in for the first time', () => {
+    assert.equal(
+      satelliteVisible(
+        [
+          { hasImagery: true, imageryFailed: false },
+          { hasImagery: false, imageryFailed: false },
+        ],
+        true,
+        false,
+      ),
+      false,
     );
   });
 });

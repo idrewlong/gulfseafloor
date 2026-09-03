@@ -56,7 +56,12 @@ void main() {
   float dn = validElev(vUv - vec2(0.0, uTexelSize.y));
   float up = validElev(vUv + vec2(0.0, uTexelSize.y));
 
-  float elev = vElevation;
+  // Colour from a per-fragment sample, not the vertex varying. The mesh is one
+  // cell per 2x2 texels, so reading the interpolated vertex value painted any
+  // pond smaller than a cell as a flat, hard-edged facet — the six triangles
+  // meeting at that vertex, i.e. a hexagon. The normals below already sample
+  // per fragment; this puts the colour on the same footing.
+  float elev = validElev(vUv);
   float depth = max(-elev, 0.0);
   float land = smoothstep(-0.25, 0.45, elev);
 
@@ -113,7 +118,7 @@ void main() {
   }
 
   if (uContourInterval > 0.0) {
-    float f  = vElevation / uContourInterval;
+    float f  = elev / uContourInterval;
     float df = fwidth(f);
     float line = 1.0 - smoothstep(0.0, df * 1.5, abs(fract(f) - 0.5) - 0.5 + df);
     color = mix(color, vec3(0.12, 0.10, 0.08), line * 0.4);

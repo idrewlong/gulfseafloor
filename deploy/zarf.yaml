@@ -20,7 +20,7 @@ components:
 
   - name: seed-tiles
     description: >
-      Optional seed Terrarium tile pyramid for the Mississippi Bight AOI.
+      Optional seed terrain-RGB tile pyramid for the Mississippi Bight AOI.
       Generate with `make tiles` (synthetic stand-in). The component is here
       so a disconnected install can ship a runnable viewer without fetching
       NOAA rasters on the far side of the air gap. Paths are relative to

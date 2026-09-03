@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
-"""Decode Mapzen Terrarium terrain-RGB pixels to elevation in metres.
+"""Decode Mapbox terrain-RGB pixels to elevation in metres.
 
 Spec formula (projectspec.md § Phase 1, matches internal/terrain):
 
     elevation = -10000 + ((R * 256 * 256 + G * 256 + B) * 0.1)
+
+The spec calls this "Terrarium"; the formula is Mapbox terrain-RGB. Mapzen
+Terrarium is (R*256 + G + B/256) - 32768 and is NOT what these tiles carry.
 
 This is the Phase 1 exit criterion: a known RGB triple decodes to a depth
 you can check against `gdallocationinfo` on the pre-rgbify GeoTIFF.
@@ -26,13 +29,13 @@ FIXTURES: tuple[tuple[tuple[int, int, int], float], ...] = (
     ((0, 0, 1), -9999.9),  # one interval above the floor
     ((1, 134, 160), 0.0),  # sea level; packed = 100000
     ((1, 134, 59), -10.1),  # matches Go TestRoundTripKnownDepths
-    ((1, 133, 216), -20.0),  # typical Mississippi Bight shelf
+    ((1, 133, 216), -20.0),  # inner shelf near NDBC 42354
     ((0, 253, 232), -3500.0),  # Sigsbee Deep, rounded
 )
 
 
-def decode_terrarium(r: int, g: int, b: int) -> float:
-    """Return elevation in metres from an 8-bit Terrarium RGB triple."""
+def decode_terrain_rgb(r: int, g: int, b: int) -> float:
+    """Return elevation in metres from an 8-bit terrain-RGB triple."""
     if not all(0 <= c <= 255 for c in (r, g, b)):
         raise ValueError(f"RGB components must be 0–255, got {(r, g, b)}")
     packed = (r * 256 * 256) + (g * 256) + b
@@ -42,10 +45,10 @@ def decode_terrarium(r: int, g: int, b: int) -> float:
 def assert_fixtures() -> None:
     """Fail loudly if the spec formula does not hold for the known triples."""
     for (r, g, b), want in FIXTURES:
-        got = decode_terrarium(r, g, b)
+        got = decode_terrain_rgb(r, g, b)
         if abs(got - want) > 1e-9:
             raise AssertionError(
-                f"Terrarium decode ({r},{g},{b}): got {got} m, want {want} m"
+                f"terrain-RGB decode ({r},{g},{b}): got {got} m, want {want} m"
             )
 
 
@@ -54,12 +57,12 @@ def _pixel_rgb(pixel: object) -> tuple[int, int, int]:
         return int(pixel[0]), int(pixel[1]), int(pixel[2])
     raise TypeError(
         f"pixel 0,0 is not an RGB(A) triple ({type(pixel).__name__}={pixel!r}); "
-        "need a 3-band Terrarium PNG"
+        "need a 3-band terrain-RGB PNG"
     )
 
 
 def decode_png_origin(path: str) -> tuple[tuple[int, int, int], float]:
-    """Decode pixel (0, 0) of a Terrarium PNG. Requires Pillow if a PNG is given."""
+    """Decode pixel (0, 0) of a terrain-RGB PNG. Requires Pillow if a PNG is given."""
     try:
         from PIL import Image
     except ImportError as exc:
@@ -75,22 +78,22 @@ def decode_png_origin(path: str) -> tuple[tuple[int, int, int], float]:
 
 def _decode_origin_from_rgb(pixel: object) -> tuple[tuple[int, int, int], float]:
     rgb = _pixel_rgb(pixel)
-    return rgb, decode_terrarium(*rgb)
+    return rgb, decode_terrain_rgb(*rgb)
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Decode Terrarium RGB to elevation (metres)."
+        description="Decode terrain-RGB to elevation (metres)."
     )
     parser.add_argument(
         "png",
         nargs="?",
-        help="optional Terrarium PNG; decodes pixel (0, 0) if Pillow is installed",
+        help="optional terrain-RGB PNG; decodes pixel (0, 0) if Pillow is installed",
     )
     args = parser.parse_args(argv)
 
     assert_fixtures()
-    print("verify_terrarium: all fixtures passed")
+    print("verify_terrain_rgb: all fixtures passed")
     for (r, g, b), metres in FIXTURES:
         print(f"  ({r:>3},{g:>3},{b:>3}) -> {metres:g} m")
 

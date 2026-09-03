@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { legendGradientCss, unlitBaseColor } from './lut.ts';
+import { DEFAULT_DEPTH_MIN } from './viewerConfig.ts';
 
 function assertRgb(got: readonly number[], want: readonly number[]): void {
   assert.equal(got.length, 3);
@@ -11,8 +12,14 @@ function assertRgb(got: readonly number[], want: readonly number[]): void {
 }
 
 describe('unlitBaseColor', () => {
-  it('matches the terrain shader gulf water at −30 m', () => {
-    assertRgb(unlitBaseColor(-30), [0.30661695666346694, 0.4450734957315415, 0.5107766782665387]);
+  // The shader reads uDepthMin, so parity has to be checked at a stated window
+  // rather than at whichever one happens to be the default.
+  it('matches the terrain shader gulf water at −30 m in a −30 m window', () => {
+    assertRgb(unlitBaseColor(-30, -30), [0.30661695666346694, 0.4450734957315415, 0.5107766782665387]);
+  });
+
+  it('defaults to the viewer depth window, so the legend cannot drift from the shader', () => {
+    assertRgb(unlitBaseColor(-30), unlitBaseColor(-30, DEFAULT_DEPTH_MIN));
   });
 
   it('matches the terrain shader sand/water mix at 0 m', () => {
@@ -34,7 +41,7 @@ describe('unlitBaseColor', () => {
 
 describe('legendGradientCss', () => {
   it('puts −30 m gulf at the bottom and +12 m scrub at the top', () => {
-    const css = legendGradientCss(-30, 12);
+    const css = legendGradientCss(-30, 12, -30);
     assert.match(css, /^linear-gradient\(to top,/);
     assert.match(css, /rgb\(78, 113, 130\) 0%/);
     assert.match(css, /rgb\(97, 112, 77\) 100%\)$/);

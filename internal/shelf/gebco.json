@@ -1,0 +1,14 @@
+{
+  "grid": "GEBCO_2024",
+  "source": "https://dap.ceda.ac.uk/bodc/gebco/global/gebco_2024/ice_surface_elevation/netcdf/GEBCO_2024_CF.nc",
+  "retrieved": "2026-09-03T01:26:58Z",
+  "note": "Ice-surface elevation, metres above MSL, negative down. Public domain; attribution required. Not for navigation.",
+  "west": -90.28125,
+  "south": 29.418750000000003,
+  "res": 0.004166666666666667,
+  "cols": 700,
+  "rows": 347,
+  "order": "row-major, rows south to north, columns west to east, int16 little-endian",
+  "min": -1916,
+  "max": 113
+}

@@ -1,8 +1,10 @@
 # Data sources
 
 Provenance, terms, and retrieval state for every dataset named in the
-build spec. Nothing in the table below has been pulled into this
-repository. The retrieval-date column is therefore empty on purpose.
+build spec. One dataset has now been pulled into this repository: an
+AOI clip of the GEBCO global grid, vendored at
+`internal/shelf/gebco.bin`. Every other row below is still unretrieved,
+and no NOAA bytes are on disk.
 
 Before the first pull of any NOAA product, read the
 [NESDIS Notice of Changes](https://www.nesdis.noaa.gov/about/documents-reports/notice-of-changes).
@@ -26,42 +28,51 @@ allowed).
 
 ## Area of interest
 
-Mississippi Bight / Gulf shelf south of Long Beach, WGS84:
+Mississippi Bight, New Orleans to Orange Beach and south to NDBC
+42354, WGS84:
 
 | | |
 |---|---|
-| West | −90.0 |
-| South | 28.5 |
-| East | −88.0 |
-| North | 30.4 |
+| West | −90.20 |
+| South | 29.50 |
+| East | −87.45 |
+| North | 30.78 |
 
-`internal/tiles.AOI` is this box. Synthetic and (eventually) NOAA
-tiles are clipped to it. The box is a demonstration window, not a
-chart limit.
+`internal/tiles.AOI` is this box, and it is the authority — the table
+above is a copy of it. GEBCO and (eventually) NOAA tiles are clipped
+to it. The box is a demonstration window, not a chart limit.
 
 ---
 
-## Synthetic demo tiles — not NOAA data
+## Demo tiles — GEBCO-derived, not NOAA data
 
 `make tiles` runs `cmd/tiler synth` and writes an XYZ PNG pyramid
-under `data/tiles` (default z 6–11). The surface is a procedural
-shelf: near 0 m at the northern (coastal) edge, about −80 m on the
-mid-shelf, a canyon-like drop in the southwest, plus mild
-along-shore undulation. Depths are invented.
+under `data/tiles` (default z 6–11). The surface is now two things
+joined at the shelf boundary:
 
-Those files are **not** National Bathymetric Source, **not** a
-hydrographic survey, and **not** unaltered NOAA data. They exist so
-the renderer and server can run with the network cable unplugged.
-The manifest must keep a synthetic flag so a UI about panel cannot
-attribute them to NOAA. `data/tiles` is gitignored; regenerating is
-the source of truth.
+- **Open shelf** — the GEBCO 2024 grid, clipped to the AOI and
+  bilinearly resampled. Real bathymetry, from −4 m behind the
+  Chandeleur chain to −81 m at the southeast corner.
+- **Sound, bays, lakes and lagoons** — still the procedural
+  near-shore model. GEBCO does not resolve this water: its cells span
+  about 460 m, so they blur the barrier islands into open water, and
+  its land mask reads −10 m in Lake Pontchartrain (really about 4 m)
+  and +22 m in Perdido Bay, which is water.
+
+The result is therefore **modified** GEBCO, not the published grid,
+and it must not be presented as the original unaltered grid. It is
+**not** National Bathymetric Source, **not** a hydrographic survey,
+**not** unaltered NOAA data, and **not for navigation**. The manifest
+carries `depthSource` so a UI about panel cites the right grid and
+cannot attribute the surface to NOAA. `data/tiles` is gitignored;
+regenerating is the source of truth.
 
 ---
 
 ## Source index
 
-Retrieval date for every row: **not retrieved — verify NESDIS Notice
-of Changes before first pull.**
+Retrieval date: recorded per row. Rows without one are **not
+retrieved — verify NESDIS Notice of Changes before first pull.**
 
 | Dataset | Access path | License / terms | Attribution requirement | Bundled in repo |
 |---|---|---|---|---|
@@ -70,7 +81,7 @@ of Changes before first pull.**
 | S-102 Bathymetric Surfaces | `s3://noaa-s102-pds`. Keys encode S-102 edition and region; `US00` is the IHO producer code for OCS. HDF5 under the IHO S-102 profile. | NODD open for the NOAA-posted files. S-102 is an IHO standard; the *format* is not a data licence. | Same NODD rules on the NOAA-posted surfaces. Do not imply IHO endorsement of this viewer. | No |
 | OCS Hydrographic Survey Data | `s3://noaa-ocs-hydrodata`. Raw surveys, qualified and unqualified. | NODD open. | Same NODD rules. Unqualified surveys are still NOAA-posted public data; they are not a quality stamp. | No |
 | SCuBA (NOAA/NGA ICESat-2) | `s3://noaa-nos-scuba-icesat2-pds`. Satellite-derived bathymetry. NGA is a partner on the product; the bytes we would use are on the public NOAA bucket. | NODD open. | Same NODD rules. NGA partnership does not move this dataset behind a `.mil` or CAC gate; if that ever changes, it leaves scope. | No |
-| GEBCO global grid | [gebco.net](https://www.gebco.net/) gridded bathymetry download. No registration. | Public domain. [GEBCO terms of use](https://www.gebco.net/data-products/gridded-bathymetry/terms-of-use): free to copy, adapt, and commercially exploit. Use constitutes acceptance of the disclaimer (not for navigation / safety of navigation). | Required. Form (version-specific), e.g. `GEBCO Compilation Group (2024) GEBCO 2024 Grid (doi:10.5285/1c44ce99-0a0d-5f4f-e063-7086abc0ea0f)`. Must not imply GEBCO, IHO, or IOC endorsement. Must not misrepresent the grid or its source. | No |
+| GEBCO global grid | `https://dap.ceda.ac.uk/bodc/gebco/global/gebco_2024/ice_surface_elevation/netcdf/GEBCO_2024_CF.nc` (CEDA, no registration; one of the files forming the GEBCO 2024 DOI). Retrieved 2026-09-03T01:26:58Z by `scripts/fetch-gebco.py`, which HTTP-range-reads the AOI rows out of the 7.4 GB grid rather than downloading it. | Public domain. [GEBCO terms of use](https://www.gebco.net/data-products/gridded-bathymetry/terms-of-use): free to copy, adapt, and commercially exploit. Use constitutes acceptance of the disclaimer (not for navigation / safety of navigation). | Required. Form (version-specific), e.g. `GEBCO Compilation Group (2024) GEBCO 2024 Grid (doi:10.5285/1c44ce99-0a0d-5f4f-e063-7086abc0ea0f)`. Must not imply GEBCO, IHO, or IOC endorsement. Must not misrepresent the grid or its source. | **Yes** — AOI clip at `internal/shelf/gebco.bin` (700 × 347 cells, 15 arc-second, int16), provenance in `internal/shelf/gebco.json`. Modified: resampled and blended with the procedural near-shore model. |
 | USGS 3DEP lidar | [AWS Open Data Registry — USGS 3DEP](https://registry.opendata.aws/usgs-lidar/). Topography side of the coastal strip. | U.S. government work, public domain. | Attribution requested (USGS 3DEP). No endorsement implied. | No |
 | SRTM / Copernicus DEM | SRTM via public NASA / OpenTopography-class archives. Copernicus DEM via the Copernicus programme distribution (registration-free mirrors only; if a portal requires an account, do not use that portal). | SRTM: U.S. government work, public domain. Copernicus DEM: Copernicus licence (free use with attribution; no implied endorsement). | SRTM: NASA / NGA collection acknowledgment. Copernicus: “produced using Copernicus WorldDEM-30 © DLR e.V. 2010–2014 and © Airbus Defence and Space GmbH 2014–2018 provided under COPERNICUS by the European Union and ESA; all rights reserved” (confirm the exact string for the edition pulled). | No |
 | HYCOM | Public THREDDS NCSS `https://ncss.hycom.org/thredds/ncss/grid/GLBy0.08/latest`. Retrieved 2026-08-26T00:15:02Z (classic NetCDF, surface `vertCoord=0`). Snapshot validTime 2026-08-26T00:00:00Z. | Public model output; distributor terms on the THREDDS node in use. | Acknowledge the HYCOM consortium and the specific run / experiment ID. | No |

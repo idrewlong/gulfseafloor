@@ -9,7 +9,7 @@ import {
   type BBox,
   type TileCoord,
 } from '../geo';
-import { decodeTerrarium, isNodata } from './terrarium';
+import { decodeTerrainRGB, isNodata } from './terrainRgb';
 import vert from './shaders/terrain.vert.glsl?raw';
 import frag from './shaders/terrain.frag.glsl?raw';
 
@@ -107,7 +107,7 @@ function heightTextureFromHeights(heights: ImageData): THREE.DataTexture {
     const r = heights.data[i * 4] ?? 0;
     const g = heights.data[i * 4 + 1] ?? 0;
     const b = heights.data[i * 4 + 2] ?? 0;
-    data[i] = THREE.DataUtils.toHalfFloat(decodeTerrarium(r, g, b));
+    data[i] = THREE.DataUtils.toHalfFloat(decodeTerrainRGB(r, g, b));
   }
   const tex = new THREE.DataTexture(data, w, h, THREE.RedFormat, THREE.HalfFloatType);
   tex.colorSpace = THREE.NoColorSpace;
@@ -322,7 +322,7 @@ export class TerrainTile {
     if (r === undefined || g === undefined || b === undefined) {
       return null;
     }
-    const elev = decodeTerrarium(r, g, b);
+    const elev = decodeTerrainRGB(r, g, b);
     if (isNodata(elev)) {
       return null;
     }

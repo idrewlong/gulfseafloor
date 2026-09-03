@@ -15,7 +15,7 @@ import (
 	"golang.org/x/sync/singleflight"
 )
 
-// tileStore reads pre-generated Terrarium PNGs. Concurrent requests for the
+// tileStore reads pre-generated terrain-RGB PNGs. Concurrent requests for the
 // same z/x/y are collapsed with singleflight; disk work is bounded by a pool.
 type tileStore struct {
 	root string

@@ -18,12 +18,11 @@
         tabindex="0"
         aria-label="Bathymetric terrain of the Mississippi Sound. Drag to pan, scroll to zoom, right-drag to tilt, or use arrow keys."
       ></canvas>
-      <div class="neatline" aria-hidden="true"></div>
 
       <header class="chart-head">
         <div class="chart-head-text">
           <h1>Gulf Seafloor Viewer</h1>
-          <p id="region-line">Mississippi Sound · synthetic seed</p>
+          <p id="region-line">Mississippi Sound · GEBCO 2024 (modified)</p>
         </div>
         <div class="chart-head-actions">
           <div class="nav-help" id="nav-help">
@@ -71,7 +70,7 @@
       <div id="buoy-marks" hidden></div>
       <div id="aircraft-marks" hidden></div>
       <p id="caption" class="scene-caption">
-        Looking north · Mississippi Sound · synthetic depths · 1× vertical
+        Looking north · Mississippi Sound · GEBCO 2024 (modified) · 1× vertical
       </p>
 
       <p id="status" class="status" role="status" hidden></p>
@@ -149,8 +148,10 @@
             Dauphin Island. The mainland waterline is the OpenStreetMap
             coastline, so the bays, bayous and river mouths are the real ones,
             and the islands follow their OpenStreetMap shorelines (Cat,
-            West/East Ship, Horn, Petit Bois, Dauphin, Deer, Round). Depths are still a
-            synthetic stand-in, not NOAA survey data. North is the mainland
+            West/East Ship, Horn, Petit Bois, Dauphin, Deer, Round). Open-shelf
+            depths come from the GEBCO 2024 grid; inside the Sound, the bays and
+            the lagoons they are still a procedural stand-in. Neither is NOAA
+            survey data. North is the mainland
             from Pearlington through Gulfport and Pascagoula to Bayou La Batre.
             Magenta ticks are the Louisiana and Alabama lines.
           </p>
@@ -162,18 +163,31 @@
           <h3>Not a photograph</h3>
           <p>
             The surface is a <strong>heightfield</strong>. Each PNG tile stores depth in its
-            RGB values (Mapzen Terrarium encoding). The GPU lifts every vertex from that
+            RGB values (Mapbox terrain-RGB encoding). The GPU lifts every vertex from that
             depth and tints it by depth (hypsometric colour, hillshade, optional contours).
           </p>
           <p>
-            Zoom levels 6–12 are the same idea as a web map: more tiles, finer ground sample.
+            Zoom levels 6–14 are the same idea as a web map: more tiles, finer ground sample.
             They are not extra pictures of the same view.
           </p>
-          <h3>This seed is synthetic</h3>
+          <h3>Where the depths come from</h3>
           <p>
-            Tiles in this build are a procedural stand-in so the viewer runs with the network
-            unplugged. They are <strong>not NOAA survey data</strong> and must not be presented
-            as unaltered NOAA bathymetry. The coastline and island outlines are
+            South of the barrier chain the floor is the <strong>GEBCO 2024</strong> global grid,
+            clipped to this chart and bundled with the build so the viewer runs with the
+            network unplugged. GEBCO's 15 arc-second cells are about 460 m across, which is
+            too coarse to resolve the Sound, the bays and the lagoons — those are still a
+            procedural stand-in, and the two are blended across the shelf edge.
+          </p>
+          <p>
+            The surface is therefore <strong>modified</strong> GEBCO, not the published grid.
+            It is <strong>not for navigation</strong>, and it is
+            <strong>not NOAA survey data</strong> — it must not be presented as unaltered
+            NOAA bathymetry or as National Bathymetric Source.
+          </p>
+          <p class="about-credit">
+            Bathymetry derived from GEBCO Compilation Group (2024) GEBCO 2024 Grid
+            (doi:10.5285/1c44ce99-0a0d-5f4f-e063-7086abc0ea0f). GEBCO, the IHO and the IOC
+            do not endorse this viewer. Coastline and island outlines
             © OpenStreetMap contributors (ODbL).
           </p>
           <div class="ocean-about">

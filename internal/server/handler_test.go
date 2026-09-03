@@ -201,7 +201,10 @@ func TestDepthFixture(t *testing.T) {
 	if got.Nodata {
 		t.Fatal("fixture is data, not nodata")
 	}
-	if got.Encoding != "terrarium" {
+	// The packing is Mapbox terrain-RGB (-10000 + packed*0.1), not Mapzen
+	// Terrarium. The wire value has to name the formula a client would decode
+	// with; "terrarium" told them to use (R*256+G+B/256)-32768 and read ~828 km.
+	if got.Encoding != "terrain-rgb" {
 		t.Fatalf("encoding %q", got.Encoding)
 	}
 	if got.Tile != fixtureTile().String() {
@@ -322,8 +325,24 @@ func TestManifest(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&m); err != nil {
 		t.Fatal(err)
 	}
-	if len(m.Regions) != 1 || m.Regions[0].ID != "mississippi-sound" || !m.Regions[0].Synthetic {
+	if len(m.Regions) != 1 || m.Regions[0].ID != "mississippi-sound" {
 		t.Fatalf("%+v", m)
+	}
+	// Depths are GEBCO-derived now, so the region must not advertise itself as
+	// synthetic, and it must say which grid and that it was modified.
+	if m.Regions[0].Synthetic {
+		t.Error("region should no longer be flagged synthetic")
+	}
+	if m.Regions[0].Encoding != "terrain-rgb" {
+		t.Errorf("encoding should name the packing clients decode with, got %q", m.Regions[0].Encoding)
+	}
+	if !strings.Contains(m.Regions[0].DepthSource, "GEBCO") {
+		t.Errorf("depthSource should name the grid, got %q", m.Regions[0].DepthSource)
+	}
+	for _, want := range []string{"GEBCO 2024 Grid", "modified", "Not for navigation"} {
+		if !strings.Contains(m.Regions[0].Attribution, want) {
+			t.Errorf("attribution is missing %q: %s", want, m.Regions[0].Attribution)
+		}
 	}
 	if m.DataVersion == "" || m.DataVersion == "empty" {
 		t.Fatalf("manifest must carry a tile dataVersion for cache busting, got %q", m.DataVersion)

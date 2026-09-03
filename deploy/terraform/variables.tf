@@ -48,7 +48,7 @@ variable "worker_image" {
 
 variable "tile_bucket" {
   type        = string
-  description = "Destination bucket for the generated Terrarium pyramid."
+  description = "Destination bucket for the generated terrain-RGB pyramid."
   default     = ""
 }
 

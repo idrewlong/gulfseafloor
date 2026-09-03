@@ -5,10 +5,16 @@ import {
   AOI,
   DEFAULT_MAX_ZOOM,
   DEFAULT_MIN_ZOOM,
-  ORIGIN,
   lonLatToLocal,
   type BBox,
 } from './geo';
+import {
+  clampToFootprint,
+  coverDistance,
+  maxPolarForCoverage,
+  viewFootprint,
+  type Extent,
+} from './cameraFrame';
 import { createHypsometricLUT } from './lut';
 import { QuadtreeLOD } from './terrain/QuadtreeLOD';
 import type { SharedTerrainUniforms } from './terrain/TerrainTile';
@@ -49,6 +55,13 @@ import { mountLocator } from './ui/locator';
 
 const DEFAULT_CONTOUR_INTERVAL = 10;
 
+/**
+ * The intro zooms out to the covering distance from a little closer in. It
+ * never starts further out than that: the chart has to fill the frame the
+ * whole way, or the opening shot shows its edges.
+ */
+const INTRO_PUSH_IN = 0.78;
+
 type ManifestRegion = {
   id?: string;
   name?: string;
@@ -57,6 +70,7 @@ type ManifestRegion = {
   maxZoom?: number;
   encoding?: string;
   synthetic?: boolean;
+  depthSource?: string;
 };
 
 type Manifest = {
@@ -70,6 +84,7 @@ type Manifest = {
   tiles?: boolean;
   tileCount?: number;
   synthetic?: boolean;
+  depthSource?: string;
   dataVersion?: string;
 };
 
@@ -160,40 +175,69 @@ function applySun(dir: THREE.Vector3, azimuth: number, altitude: number): void {
   dir.set(s.x, s.y, s.z).normalize();
 }
 
+/** Local-plane box the chart occupies. */
+function aoiExtent(aoi: BBox): Extent {
+  const sw = lonLatToLocal(aoi.west, aoi.south);
+  const ne = lonLatToLocal(aoi.east, aoi.north);
+  return { minX: sw.x, minY: sw.y, maxX: ne.x, maxY: ne.y };
+}
+
+/** Distance at which the chart covers the viewport with no edge showing. */
+function chartCover(
+  camera: THREE.PerspectiveCamera,
+  canvas: HTMLCanvasElement,
+  extent: Extent,
+): number {
+  return coverDistance({
+    extent,
+    fovDeg: camera.fov,
+    viewportWidth: canvas.clientWidth,
+    viewportHeight: canvas.clientHeight,
+  });
+}
+
+/** Open dead top-down on the fitted chart. Resolves once the intro settles. */
 function poseCamera(
   camera: THREE.PerspectiveCamera,
   controls: MapControls,
+  extent: Extent,
+  cover: number,
   animate: boolean,
-): void {
-  const origin = lonLatToLocal(ORIGIN.lon, ORIGIN.lat);
-  const target = new THREE.Vector3(origin.x, origin.y, 0);
-  const end = new THREE.Vector3(origin.x + 12_000, origin.y - 175_000, 78_000);
+): Promise<void> {
+  const cx = (extent.minX + extent.maxX) / 2;
+  const cy = (extent.minY + extent.maxY) / 2;
+  const target = new THREE.Vector3(cx, cy, 0);
+  const end = new THREE.Vector3(cx, cy, cover);
 
   controls.target.copy(target);
   if (!animate) {
     camera.position.copy(end);
     camera.lookAt(target);
     controls.update();
-    return;
+    return Promise.resolve();
   }
 
-  const start = new THREE.Vector3(origin.x + 6_000, origin.y - 80_000, 110_000);
+  const start = new THREE.Vector3(cx, cy, cover * INTRO_PUSH_IN);
   camera.position.copy(start);
   camera.lookAt(target);
 
-  const duration = 1400;
-  const t0 = performance.now();
-  const tick = (now: number): void => {
-    const u = Math.min(1, (now - t0) / duration);
-    const s = u * u * (3 - 2 * u);
-    camera.position.lerpVectors(start, end, s);
-    controls.target.copy(target);
-    controls.update();
-    if (u < 1) {
-      requestAnimationFrame(tick);
-    }
-  };
-  requestAnimationFrame(tick);
+  return new Promise((resolve) => {
+    const duration = 1400;
+    const t0 = performance.now();
+    const step = (now: number): void => {
+      const u = Math.min(1, (now - t0) / duration);
+      const s = u * u * (3 - 2 * u);
+      camera.position.lerpVectors(start, end, s);
+      controls.target.copy(target);
+      controls.update();
+      if (u < 1) {
+        requestAnimationFrame(step);
+        return;
+      }
+      resolve();
+    };
+    requestAnimationFrame(step);
+  });
 }
 
 function fitProjection(camera: THREE.PerspectiveCamera, controls: MapControls): void {
@@ -203,24 +247,35 @@ function fitProjection(camera: THREE.PerspectiveCamera, controls: MapControls): 
   camera.updateProjectionMatrix();
 }
 
-/** Keep the look-at on the AOI so pan cannot walk off the chart. */
-function clampLookAt(
+const forwardScratch = new THREE.Vector3();
+
+/**
+ * Keep the chart under every pixel of the view. Clamping the look-at alone is
+ * not enough — it lets the reader pan until the edge sits mid-screen with void
+ * beyond it — so this clamps the ground footprint of the view instead.
+ */
+function clampChart(
   camera: THREE.PerspectiveCamera,
   controls: MapControls,
-  aoi: BBox,
+  extent: Extent,
 ): void {
-  const sw = lonLatToLocal(aoi.west, aoi.south);
-  const ne = lonLatToLocal(aoi.east, aoi.north);
+  camera.getWorldDirection(forwardScratch);
+  const footprint = viewFootprint({
+    distance: camera.position.distanceTo(controls.target),
+    fovDeg: camera.fov,
+    aspect: camera.aspect,
+    polar: controls.getPolarAngle(),
+    azimuth: Math.atan2(forwardScratch.x, forwardScratch.y),
+  });
   const t = controls.target;
-  const nx = Math.min(ne.x, Math.max(sw.x, t.x));
-  const ny = Math.min(ne.y, Math.max(sw.y, t.y));
-  const dx = nx - t.x;
-  const dy = ny - t.y;
+  const next = clampToFootprint({ x: t.x, y: t.y }, extent, footprint);
+  const dx = next.x - t.x;
+  const dy = next.y - t.y;
   if (dx === 0 && dy === 0) {
     return;
   }
-  t.x = nx;
-  t.y = ny;
+  t.x = next.x;
+  t.y = next.y;
   camera.position.x += dx;
   camera.position.y += dy;
 }
@@ -250,8 +305,11 @@ async function start(): Promise<void> {
   const maxZoom = regionInfo.maxZoom ?? manifest?.maxZoom ?? DEFAULT_MAX_ZOOM;
   const aoi = bboxFromManifest(regionInfo.bbox) ?? bboxFromManifest(manifest?.bbox) ?? AOI;
   const region = regionInfo.name ?? manifest?.region ?? manifest?.name ?? 'Mississippi Sound';
-  const encoding = regionInfo.encoding ?? manifest?.encoding ?? 'Terrarium RGB';
+  const encoding = regionInfo.encoding ?? manifest?.encoding ?? 'terrain-rgb';
   const synthetic = (regionInfo.synthetic ?? manifest?.synthetic) !== false;
+  // Cite the grid the tiles were actually cut from rather than a literal, so
+  // the caption cannot drift from the heightfield the server built.
+  const depthSource = regionInfo.depthSource ?? manifest?.depthSource ?? 'synthetic depths';
   regionEl.textContent = synthetic
     ? `${region} · synthetic seed · ${encoding} · z ${minZoom}–${maxZoom}`
     : `${region} · ${encoding} · z ${minZoom}–${maxZoom}`;
@@ -293,20 +351,34 @@ async function start(): Promise<void> {
   const camera = new THREE.PerspectiveCamera(48, canvas.clientWidth / canvas.clientHeight, 200, 1_200_000);
   camera.up.set(0, 0, 1);
 
+  const extent = aoiExtent(aoi);
+  let coverDist = chartCover(camera, canvas, extent);
+
   const controls = new MapControls(camera, canvas);
   controls.enableDamping = !reduced;
   controls.dampingFactor = 0.08;
   controls.screenSpacePanning = false;
   controls.minDistance = 2_500;
-  controls.maxDistance = 520_000;
+  // Zoom-out stops where the chart still covers the frame; tilt starts locked
+  // and the frame loop widens it as the reader zooms in.
+  controls.maxDistance = coverDist;
   controls.minPolarAngle = CAMERA_MIN_POLAR;
-  controls.maxPolarAngle = CAMERA_MAX_POLAR;
+  controls.maxPolarAngle = CAMERA_MIN_POLAR;
+  // North stays up. Azimuth 0 puts the camera due south of the look-at, which
+  // is the pose the labels, the locator and the "looking north" caption assume.
+  controls.minAzimuthAngle = 0;
+  controls.maxAzimuthAngle = 0;
   controls.zoomToCursor = false;
   controls.listenToKeyEvents(canvas);
   canvas.addEventListener('pointerdown', () => {
     canvas.focus({ preventScroll: true });
   });
-  poseCamera(camera, controls, !reduced);
+
+  let framed = false;
+  void poseCamera(camera, controls, extent, coverDist, !reduced).then(() => {
+    framed = true;
+    controls.maxDistance = coverDist;
+  });
 
   const lod = new QuadtreeLOD({
     scene,
@@ -446,7 +518,7 @@ async function start(): Promise<void> {
   document.addEventListener('visibilitychange', restartAircraftPoll);
 
   const setCaption = (exag: number): void => {
-    const base = `Looking north · Mississippi Sound · synthetic depths · ${exag}× vertical`;
+    const base = `Looking north · Mississippi Sound · ${depthSource} · ${exag}× vertical`;
     const ocean = oceanCaption(
       oceanOn.currents ? currentsValid : null,
       oceanOn.buoys ? buoysValid : null,
@@ -601,6 +673,10 @@ async function start(): Promise<void> {
     renderer.setSize(w, h, false);
     camera.aspect = w / Math.max(1, h);
     camera.updateProjectionMatrix();
+    coverDist = chartCover(camera, canvas, extent);
+    if (framed) {
+      controls.maxDistance = coverDist;
+    }
   };
   window.addEventListener('resize', onResize);
   onResize();
@@ -610,8 +686,15 @@ async function start(): Promise<void> {
   const tick = (): void => {
     requestAnimationFrame(tick);
     camera.up.set(0, 0, 1);
+    controls.maxPolarAngle = maxPolarForCoverage({
+      distance: camera.position.distanceTo(controls.target),
+      fovDeg: camera.fov,
+      aspect: camera.aspect,
+      extent,
+      ceiling: CAMERA_MAX_POLAR,
+    });
     controls.update();
-    clampLookAt(camera, controls, aoi);
+    clampChart(camera, controls, extent);
     fitProjection(camera, controls);
     lod.update(camera, canvas.clientHeight);
 

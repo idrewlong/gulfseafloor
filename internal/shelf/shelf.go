@@ -1,6 +1,8 @@
-// Package shelf is a Mississippi Sound stand-in.
+// Package shelf builds the Mississippi Bight heightfield.
 // Island and bay planforms are simplified OpenStreetMap outlines (ODbL).
-// Depths are metres, negative down, and are procedural — not NOAA data.
+// Depths are metres, negative down: GEBCO 2024 on the open shelf, procedural
+// inside the Sound, the bays and the lagoons. Modified, not the published
+// grid — and not NOAA data. See docs/data-sources.md.
 package shelf
 
 import (
@@ -221,14 +223,27 @@ func Sample(lon, lat float64) float64 {
 	}
 	depth := sound*(1-lw) + lagoon*lw
 
-	// Open shelf south of the barrier chain, and the Alabama gulf east of
-	// Dauphin. NDBC 42354 is 20 m — this shelf is wide and shallow.
-	inner := -8.0 - 9*smoothstep(0, 22_000, shore)
-	outerT := 1 - smoothstep(29.50, 30.08, lat)
-	along := 1.8 * (2*fbm(lon*14, lat*17, 3) - 1) * outerT
-	shelf := inner - 4*outerT + along
-	sw := shelfWeight(lon, lat) * (1 - lw)
-	depth = depth*(1-sw) + shelf*sw
+	// Past the near shore the floor is GEBCO, not a guess. Every procedural
+	// stand-in tried here was keyed to distance offshore and one latitude ramp,
+	// which cannot express the Bight opening toward DeSoto Canyon: the last one
+	// read −21 m where the grid says −42 m.
+	//
+	// The grid does not own the shore, though. GEBCO is a global ocean product
+	// and it is only trustworthy here on the open shelf. Behind the barrier
+	// chain its 15 arc-second cells (about 460 m) blur the islands into open
+	// water and its land mask stops agreeing with the OSM waterline: it reads
+	// −10 m in Lake Pontchartrain, which is barely 4 m deep, and +22 m in
+	// Perdido Bay, which is water. So the procedural model still owns the
+	// Sound, the bays, the lakes and the western lagoons, and hands over to the
+	// grid across the same shelf boundary the old ramp used.
+	if g, ok := gebcoAt(lon, lat); ok {
+		if g > -0.4 {
+			// A cell straddling the waterline. OSM says this point is water.
+			g = -0.4
+		}
+		gw := shelfWeight(lon, lat) * (1 - lw) * smoothstep(600, 3_000, shore)
+		depth = depth*(1-gw) + g*gw
+	}
 
 	// Surf zone only. A 1.4 km / +2.2 m shoal pinned the Sound to the −0.4 m
 	// clamp and painted the Mississippi beaches as a sand plate.
@@ -247,8 +262,8 @@ func Sample(lon, lat float64) float64 {
 	if depth > -0.4 {
 		depth = -0.4
 	}
-	if depth < -40 {
-		depth = -40
+	if depth < -85 {
+		depth = -85
 	}
 	return depth
 }
@@ -294,8 +309,9 @@ func lagoonWeight(lon, lat float64) float64 {
 }
 
 // shelfWeight is 1 on the open gulf south of the islands and on the Alabama
-// gulf east of Dauphin. It fades across ~10 km so the Sound does not end on
-// a latitude line.
+// gulf east of Dauphin, 0 inside the Sound and the lagoons. It fades across
+// ~10 km so the Sound does not end on a latitude line, and it is the boundary
+// between water GEBCO resolves well and water it does not.
 func shelfWeight(lon, lat float64) float64 {
 	south := 1 - smoothstep(30.12, 30.22, lat)
 	alabama := smoothstep(-88.20, -87.92, lon) * (1 - smoothstep(30.30, 30.40, lat))

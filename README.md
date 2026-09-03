@@ -37,8 +37,11 @@ not a navigation tool.
 
 ## 2. Data provenance
 
-No NOAA, GEBCO, USGS, HYCOM, NDBC, or Argo byte has been fetched into this
-repository. Retrieval dates are therefore empty. Before the first pull, check
+One dataset has been fetched into this repository: an AOI clip of the GEBCO
+2024 grid, vendored at `internal/shelf/gebco.bin` and retrieved 2026-09-03 by
+`scripts/fetch-gebco.py`. No NOAA, USGS, HYCOM, NDBC, or Argo bytes have been
+fetched. Retrieval dates are recorded per row; rows without one are
+unretrieved. Before the first pull, check
 the [NESDIS Notice of Changes](https://www.nesdis.noaa.gov/about/documents-reports/notice-of-changes)
 — NOAA has been retiring marine, coastal, and estuary products at an elevated
 rate since 2025. Record the retrieval date in [`docs/data-sources.md`](docs/data-sources.md)
@@ -54,7 +57,7 @@ NODD buckets):
 | NOAA S-102 surfaces | `s3://noaa-s102-pds` | NODD open; IHO S-102 format | Same NODD rules |
 | NOAA OCS hydrographic surveys | `s3://noaa-ocs-hydrodata` | NODD open | Same NODD rules |
 | NOAA/NGA SCuBA (ICESat-2) | `s3://noaa-nos-scuba-icesat2-pds` | NODD open | Same NODD rules |
-| GEBCO global grid | gebco.net | Public domain; terms of use apply | Required; no implied IHO/IOC endorsement |
+| GEBCO global grid | CEDA (bundled: AOI clip at `internal/shelf/gebco.bin`) | Public domain; terms of use apply; not for navigation | Required, with DOI; no implied GEBCO/IHO/IOC endorsement |
 | USGS 3DEP lidar | AWS Open Data Registry | U.S. government work, public domain | Requested |
 | SRTM / Copernicus DEM | public DEM archives | SRTM: public domain. Copernicus DEM: Copernicus licence | Copernicus requires attribution |
 | HYCOM | public THREDDS/OPeNDAP | public model output | Consortium acknowledgment |
@@ -192,7 +195,7 @@ Intended sequence, **not executed**:
 4. Confirm `/healthz` and a tile `GET` succeed with the cluster's egress
    denied.
 
-What has been run: local Go tests for Terrarium encode/decode and slippy-map
+What has been run: local Go tests for terrain-RGB encode/decode and slippy-map
 math; synthetic tile generation via `cmd/tiler synth`. What has not been
 run: the container build in CI, image signing, a Zarf package create or
 deploy, and any install on a cluster without an internet route.
@@ -251,11 +254,13 @@ guidance, seeker, or RCS model, and it is not a navigation product.
 
 ## 7. Known limitations
 
-- **Synthetic seed tiles, not NOAA.** `cmd/tiler synth` writes a procedural
-  Mississippi Bight shelf (Sound a few metres, NDBC 42354 ~20 m, pine coast
-  a few metres above the berm, Pontchartrain bowl near sea level). Depths
-  are invented. They must not be labelled or demoed as National Bathymetric
-  Source.
+- **GEBCO-derived tiles, not NOAA.** `cmd/tiler synth` writes the open-shelf
+  floor from a vendored AOI clip of the GEBCO 2024 grid (−4 m behind the
+  Chandeleur chain to −81 m at the southeast corner, NDBC 42354 ~20 m). The
+  Sound, bays, lakes and lagoons are still procedural, because GEBCO's
+  460 m cells do not resolve them. The surface is therefore *modified*
+  GEBCO — it must not be demoed as the unaltered grid, as National
+  Bathymetric Source, or for navigation.
 - **No NOAA bytes on disk.** The five NODD buckets have not been listed
   from this repo's documented retrieval process; no GeoTIFF, HDF5, or CSV
   from those buckets is vendored.
@@ -295,7 +300,7 @@ gulf-seafloor-viewer/
 │   ├── ingest/                # planned — SQS consumer (Phase 6)
 │   └── server/                # present — tile + API server (Phase 3)
 ├── internal/
-│   ├── terrain/               # present — Terrarium/terrain-RGB encode/decode
+│   ├── terrain/               # present — Mapbox terrain-RGB encode/decode
 │   ├── tiles/                 # present — slippy-map math, AOI, covering
 │   ├── server/                # present — HTTP handlers (not in the spec sketch; lives here)
 │   ├── s102/                  # planned — S-102 HDF5 reader (Phase 5)
@@ -344,8 +349,9 @@ modified, the result must not be stated or implied to be original,
 unaltered NOAA data.
 
 This project has not yet retrieved NOAA data. When it does, the viewer
-about panel will carry the same text. Synthetic tiles produced by
-`cmd/tiler synth` are not NOAA data and must not be presented as such.
+about panel will carry the same text. Tiles produced by `cmd/tiler synth`
+are GEBCO-derived and procedural — they are not NOAA data and must not be
+presented as such.
 
 GEBCO, USGS, Copernicus, HYCOM, and Argo each have their own
 acknowledgment rules; those are listed in

@@ -202,6 +202,11 @@ export class QuadtreeLOD {
   setImageryEnabled(on: boolean): void {
     this.wantImagery = on;
     if (on) {
+      // The layer gate now holds the whole drape off while any visible tile has
+      // failed, so a tile that burned through MAX_IMAGERY_RETRIES would keep
+      // satellite dark for the rest of the session. Toggling the control is an
+      // explicit user gesture, not a render loop, so re-arm the budget here.
+      this.imageryRetries.clear();
       for (const node of this.nodes.values()) {
         if (node.state === 'ready') {
           this.enqueueImagery(node);

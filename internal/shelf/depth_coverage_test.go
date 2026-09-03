@@ -8,19 +8,32 @@ import (
 	"github.com/idrewlong/gulfseafloor/internal/tiles"
 )
 
+// A longitude wall at -88.80 used to cap everything west of Horn as lagoon, so
+// this patch rendered as a pale 3 m plate next to −30 m gulf.
+//
+// This used to assert the two ends were within 8 m of each other. They are not,
+// and should not be: GEBCO puts the water behind the Chandeleur chain at about
+// −4 m and the open Bight south of Horn at about −16 m. That 12 m is a real
+// shelf gradient, and reproducing it is the point of using the grid. What the
+// test was actually guarding is that the two are joined by a ramp rather than a
+// step, so it now scans the whole line instead of comparing its endpoints.
 func TestWaterSouthOfCatIslandMatchesSouthOfHorn(t *testing.T) {
-	southOfCat := Sample(-89.12, 30.10)
-	southOfHorn := Sample(-88.67, 30.10)
-	if southOfCat >= 0 {
-		t.Fatalf("south of Cat Island should be water, got %g", southOfCat)
+	const lat = 30.10
+	prevLon := -89.30
+	prev := Sample(prevLon, lat)
+	for lon := -89.28; lon <= -88.50; lon += 0.02 {
+		got := Sample(lon, lat)
+		if got >= 0 {
+			t.Fatalf("water at %.2f,%.2f should be water, got %g", lon, lat, got)
+		}
+		if math.Abs(got-prev) > 4 {
+			t.Fatalf("water jumps %.1f m from %.2f (%g) to %.2f (%g) — lagoon wall",
+				math.Abs(got-prev), prevLon, prev, lon, got)
+		}
+		prev, prevLon = got, lon
 	}
-	if southOfHorn >= 0 {
-		t.Fatalf("south of Horn Island should be water, got %g", southOfHorn)
-	}
-	// A longitude wall at -88.80 used to cap everything west of Horn as lagoon,
-	// so this patch rendered as a pale 3 m plate next to −30 m gulf.
-	if southOfCat > southOfHorn+8 {
-		t.Fatalf("south of Cat (%g) is lagoon-capped; south of Horn is %g", southOfCat, southOfHorn)
+	if prev > -12 {
+		t.Fatalf("the line should reach the open Bight by %.2f, got %g", prevLon, prev)
 	}
 }
 

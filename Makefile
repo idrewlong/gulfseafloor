@@ -1,4 +1,4 @@
-.PHONY: test tiles web server run tidy ocean
+.PHONY: test tiles web server run tidy ocean gebco
 
 DATA_DIR ?= data/tiles
 BIN ?= gulf-viewer
@@ -28,6 +28,14 @@ run: web server
 tidy:
 	go test ./...
 	cd web && npm run build
+
+# Re-clip the GEBCO grid. The result is vendored at internal/shelf/gebco.bin,
+# so this only needs running to change AOI, resolution, or GEBCO release.
+GEBCO_YEAR ?= 2024
+
+gebco:
+	@echo "clipping GEBCO $(GEBCO_YEAR) to the AOI (~350 range requests, no full download)"
+	python3 scripts/fetch-gebco.py --year $(GEBCO_YEAR)
 
 ocean:
 	@test -n "$(HYCOM_NCSS)" || (echo "set HYCOM_NCSS to a THREDDS NCSS URL"; exit 2)

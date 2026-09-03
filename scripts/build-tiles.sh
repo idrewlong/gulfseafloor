@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Real-data GDAL path: GeoTIFF → EPSG:3857 AOI clip → Terrarium RGB → XYZ tiles.
+# Real-data GDAL path: GeoTIFF → EPSG:3857 AOI clip → terrain-RGB → XYZ tiles.
 # If GDAL / rio are missing, use the synthetic Go tiler: `make tiles`.
 set -euo pipefail
 
@@ -103,5 +103,5 @@ echo "==> ${GDAL2TILES} --xyz -z 6-13 --processes=${PROCS} → ${TILE_DIR}"
 echo
 echo "Tiles written to ${TILE_DIR}"
 echo "Verify a known pixel against the warped (pre-rgbify) raster:"
-echo "  python3 ${ROOT}/scripts/verify_terrarium.py ${TILE_DIR}/<z>/<x>/<y>.png"
+echo "  python3 ${ROOT}/scripts/verify_terrain_rgb.py ${TILE_DIR}/<z>/<x>/<y>.png"
 echo "  gdallocationinfo -wgs84 -valonly ${WARPED} <lon> <lat>"

@@ -1,8 +1,15 @@
-// Package terrain implements Mapzen Terrarium terrain-RGB encoding.
+// Package terrain implements Mapbox terrain-RGB elevation encoding.
 //
 //	elevation = -10000 + ((R * 256 * 256 + G * 256 + B) * 0.1)
 //
-// That packing yields 0.1 m resolution from −10 000 m to +6 777.215 m.
+// That packing yields 0.1 m resolution from −10 000 m to +6 777.215 m, and is
+// what `rio rgbify -b -10000 -i 0.1` writes.
+//
+// This is deliberately NOT Mapzen Terrarium, whose formula is
+// (R*256 + G + B/256) - 32768. The two are not interchangeable: decoding a
+// real Terrarium tile with Decode below returns roughly 828 000 m. The build
+// spec calls the scheme "Terrarium"; the numbers have always been Mapbox's.
+// See docs/architecture.md §2 and docs/adr/0001.
 package terrain
 
 import (
@@ -24,7 +31,7 @@ const (
 	MaxMetres = -OffsetMetres + 16777215*IntervalMetres
 )
 
-// Decode returns elevation in metres from an 8-bit Terrarium RGB triple.
+// Decode returns elevation in metres from an 8-bit terrain-RGB triple.
 func Decode(r, g, b uint8) float64 {
 	return -OffsetMetres + (float64(uint32(r)*65536+uint32(g)*256+uint32(b)) * IntervalMetres)
 }
@@ -46,7 +53,7 @@ func DecodeColor(c color.Color) float64 {
 	}
 }
 
-// Encode packs elevation (metres) into a Terrarium RGB triple.
+// Encode packs elevation (metres) into a terrain-RGB triple.
 // Values outside the representable range are clamped.
 func Encode(elevationMetres float64) (r, g, b uint8) {
 	clamped := math.Min(MaxMetres, math.Max(MinMetres, elevationMetres))
@@ -67,7 +74,7 @@ func EncodeNRGBA(elevationMetres float64) color.NRGBA {
 	return color.NRGBA{R: r, G: g, B: b, A: 255}
 }
 
-// DecodeAt samples one pixel of a Terrarium-encoded image.
+// DecodeAt samples one pixel of a terrain-RGB-encoded image.
 func DecodeAt(img image.Image, x, y int) (float64, error) {
 	b := img.Bounds()
 	if x < b.Min.X || x >= b.Max.X || y < b.Min.Y || y >= b.Max.Y {
