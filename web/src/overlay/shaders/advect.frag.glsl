@@ -19,6 +19,19 @@ uniform float uFlowScale;
 uniform float uMaxAge;
 uniform float uInit;
 
+uniform sampler2D uLandMask;
+
+// HYCOM's 4-7 km cells do not resolve the barrier islands, so the model calls
+// them water. This mask is what stops current being drawn across them.
+bool onLand(float lon, float lat) {
+  vec2 uv = vec2((lon - uAoiWest) / (uAoiEast - uAoiWest),
+                 (lat - uAoiSouth) / (uAoiNorth - uAoiSouth));
+  if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {
+    return false;
+  }
+  return texture2D(uLandMask, uv).r > 0.5;
+}
+
 const float PI = 3.141592653589793;
 
 vec2 hash22(vec2 p) {
@@ -65,7 +78,7 @@ vec4 spawn(float seed) {
     xy = toLocal(lon, lat);
     vec4 vel = sampleVel(lon, lat);
     nextSeed += 1.0;
-    if (vel.b >= 0.999) {
+    if (vel.b >= 0.999 && !onLand(lon, lat)) {
       break;
     }
   }
@@ -84,7 +97,8 @@ void main() {
 
   vec2 ll = toLonLat(st.xy);
   vec4 vel = sampleVel(ll.x, ll.y);
-  bool dead = uInit > 0.5 || age >= uMaxAge || !inAoi(ll.x, ll.y) || vel.b < 0.999;
+  bool dead = uInit > 0.5 || age >= uMaxAge || !inAoi(ll.x, ll.y) || vel.b < 0.999
+    || onLand(ll.x, ll.y);
   if (dead) {
     gl_FragColor = spawn(seed);
     return;

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { lonLatToLocal } from '../geo.ts';
+import { AOI, lonLatToLocal } from '../geo.ts';
 import {
   FLOW_SCALE,
   PARTICLE_COUNT,
@@ -9,6 +9,8 @@ import {
   type VelocityGrid,
 } from './currentsField.ts';
 import { speedColor } from './speedRamp.ts';
+import { BARRIER_ISLANDS } from '../geo/orient.ts';
+import { LAND_MASK_H, LAND_MASK_W, pointOnLand, rasterizeLandMask } from './landMask.ts';
 
 export function detectFloatOk(renderer: { extensions: { has(name: string): boolean } }): boolean {
   try {
@@ -62,6 +64,39 @@ export function makePointGeometry(): THREE.BufferGeometry {
 /** Arrows sit above the terrain so they never z-fight the seabed. */
 const ARROW_LIFT_Z = 18;
 /** Below this the arrow is noise, not signal. */
+/**
+ * Rasterised once and shared: HYCOM does not resolve the barrier islands, so
+ * without this the overlay draws current straight across Ship, Horn, and Cat.
+ */
+let landMaskCache: Uint8Array | null = null;
+
+export function landMask(): Uint8Array {
+  const cached = landMaskCache ?? rasterizeLandMask(BARRIER_ISLANDS, AOI);
+  landMaskCache = cached;
+  return cached;
+}
+
+/** Red-channel land mask for the shaders. 255 = land. */
+export function landMaskTexture(): THREE.DataTexture {
+  const tex = new THREE.DataTexture(
+    landMask(),
+    LAND_MASK_W,
+    LAND_MASK_H,
+    THREE.RedFormat,
+    THREE.UnsignedByteType,
+  );
+  tex.colorSpace = THREE.NoColorSpace;
+  // Nearest, and row 0 is the south edge, matching rasterizeLandMask.
+  tex.magFilter = THREE.NearestFilter;
+  tex.minFilter = THREE.NearestFilter;
+  tex.generateMipmaps = false;
+  tex.flipY = false;
+  tex.wrapS = THREE.ClampToEdgeWrapping;
+  tex.wrapT = THREE.ClampToEdgeWrapping;
+  tex.needsUpdate = true;
+  return tex;
+}
+
 const ARROW_MIN_MS = 0.02;
 const ARROW_HEAD_FRAC = 0.3;
 
@@ -75,9 +110,14 @@ export function makeStaticArrows(grid: VelocityGrid): THREE.Group {
   group.name = 'currents-arrows';
   const pts: number[] = [];
   const cols: number[] = [];
+  const mask = landMask();
   for (const a of staticArrows(grid)) {
     const speed = Math.hypot(a.u, a.v);
     if (speed < ARROW_MIN_MS) {
+      continue;
+    }
+    // A cell centre on an island is model coarseness, not current.
+    if (pointOnLand(mask, AOI, a.lon, a.lat)) {
       continue;
     }
     const rgb = speedColor(speed);

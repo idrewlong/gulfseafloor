@@ -781,7 +781,9 @@ async function start(): Promise<void> {
   window.addEventListener('resize', onResize);
   onResize();
 
-  const clock = new THREE.Clock();
+  // Timer, not the deprecated Clock: update() once per frame so getDelta()
+  // is stable no matter how many callers read it.
+  const timer = new THREE.Timer();
   const overlayScratch = new THREE.Vector3();
   const aircraftScratch = new THREE.Vector3();
   const tick = (): void => {
@@ -833,7 +835,8 @@ async function start(): Promise<void> {
       aircraftHandle.layout(aircraftProject, w, h, extra);
     }
 
-    currentsHandle?.tick(clock.getDelta());
+    timer.update();
+    currentsHandle?.tick(timer.getDelta());
     // Separate cadence from the particle sim above: repaint the field toward
     // wall-clock "now" every 30s, independent of the 15-minute ETag poll.
     const nowMs = Date.now();

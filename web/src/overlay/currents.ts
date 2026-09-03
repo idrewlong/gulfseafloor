@@ -4,6 +4,7 @@ import { FLOW_SCALE, PARTICLE_MAX_AGE, TRAIL_LAG_SEC, type VelocityGrid } from '
 import {
   disposeObject3D,
   makePointGeometry,
+  landMaskTexture,
   makeStaticArrows,
   makeTrailGeometry,
   TRAIL_SEGMENTS,
@@ -36,6 +37,7 @@ export type CurrentsHandle = {
 
 type GpuSim = {
   velTex: THREE.DataTexture;
+  landTex: THREE.DataTexture;
   ping: THREE.WebGLRenderTarget;
   pong: THREE.WebGLRenderTarget;
   read: THREE.WebGLRenderTarget;
@@ -57,6 +59,7 @@ function overlayStateUniforms(
   velTex: THREE.DataTexture,
   stateTex: THREE.Texture,
   mPerDeg: { lon: number; lat: number },
+  landTex: THREE.Texture,
 ): Record<string, THREE.IUniform> {
   return {
     uVelTex: { value: velTex },
@@ -74,6 +77,13 @@ function overlayStateUniforms(
     uFlowScale: { value: FLOW_SCALE },
     uTrailLag: { value: TRAIL_LAG_SEC },
     uSpeedMax: { value: SPEED_MAX_MS },
+    uLandMask: { value: landTex },
+    // The trail shader samples the land mask too, so the AOI bounds that map
+    // lon/lat into mask uv belong in the shared block, not just the sim.
+    uAoiWest: { value: AOI.west },
+    uAoiSouth: { value: AOI.south },
+    uAoiEast: { value: AOI.east },
+    uAoiNorth: { value: AOI.north },
   };
 }
 
@@ -140,16 +150,13 @@ function makeStateRT(): THREE.WebGLRenderTarget {
 function makeGpu(grid: VelocityGrid): GpuSim {
   const mPerDeg = metresPerDegree();
   const velTex = velocityTexture(grid);
+  const landTex = landMaskTexture();
   const ping = makeStateRT();
   const pong = makeStateRT();
   const stateTex = ping.texture;
   const simMat = new THREE.ShaderMaterial({
     uniforms: {
-      ...overlayStateUniforms(grid, velTex, stateTex, mPerDeg),
-      uAoiWest: { value: AOI.west },
-      uAoiSouth: { value: AOI.south },
-      uAoiEast: { value: AOI.east },
-      uAoiNorth: { value: AOI.north },
+      ...overlayStateUniforms(grid, velTex, stateTex, mPerDeg, landTex),
       uDt: { value: 0 },
       uMaxAge: { value: PARTICLE_MAX_AGE },
       uInit: { value: 1 },
@@ -169,7 +176,7 @@ function makeGpu(grid: VelocityGrid): GpuSim {
 
   const trailGeo = makeTrailGeometry();
   const trailMat = new THREE.ShaderMaterial({
-    uniforms: overlayStateUniforms(grid, velTex, stateTex, mPerDeg),
+    uniforms: overlayStateUniforms(grid, velTex, stateTex, mPerDeg, landTex),
     // TRAIL_STEPS must match TRAIL_SEGMENTS: it bounds the back-integration loop per vertex.
     vertexShader: `#define TRAIL_STEPS ${TRAIL_SEGMENTS}\n${trailVert}`,
     fragmentShader: trailFrag,
@@ -186,7 +193,7 @@ function makeGpu(grid: VelocityGrid): GpuSim {
   const pointGeo = makePointGeometry();
   const pointMat = new THREE.ShaderMaterial({
     uniforms: {
-      ...overlayStateUniforms(grid, velTex, stateTex, mPerDeg),
+      ...overlayStateUniforms(grid, velTex, stateTex, mPerDeg, landTex),
       uPointSize: { value: 8 },
     },
     vertexShader: particleVert,
@@ -203,6 +210,7 @@ function makeGpu(grid: VelocityGrid): GpuSim {
 
   return {
     velTex,
+    landTex,
     ping,
     pong,
     read: ping,
@@ -224,6 +232,7 @@ function disposeGpu(gpu: GpuSim): void {
   gpu.trails.onBeforeRender = (): void => {};
   gpu.points.onBeforeRender = (): void => {};
   gpu.velTex.dispose();
+  gpu.landTex.dispose();
   gpu.ping.dispose();
   gpu.pong.dispose();
   gpu.simMat.dispose();

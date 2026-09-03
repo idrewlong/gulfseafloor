@@ -14,6 +14,23 @@ uniform float uFlowScale;
 uniform float uTrailLag;
 uniform float uSpeedMax;
 
+uniform sampler2D uLandMask;
+uniform float uAoiWest;
+uniform float uAoiSouth;
+uniform float uAoiEast;
+uniform float uAoiNorth;
+
+// A 4 s streak is kilometres long, so a head in open water can still trail
+// across an island the model does not resolve. Stop it at the shoreline.
+bool onLand(float lon, float lat) {
+  vec2 uv = vec2((lon - uAoiWest) / (uAoiEast - uAoiWest),
+                 (lat - uAoiSouth) / (uAoiNorth - uAoiSouth));
+  if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {
+    return false;
+  }
+  return texture2D(uLandMask, uv).r > 0.5;
+}
+
 attribute float aId;
 attribute float aT;
 
@@ -80,7 +97,7 @@ void main() {
     }
     vec2 ll = toLonLat(pos);
     vec4 vel = sampleVel(ll.x, ll.y);
-    if (vel.b < 0.999) {
+    if (vel.b < 0.999 || onLand(ll.x, ll.y)) {
       break;
     }
     pos -= vec2(vel.r, vel.g) * dt * uFlowScale;
