@@ -27,7 +27,8 @@ import {
 } from './viewerConfig';
 import { addCoastOverlay } from './overlay/coast';
 import { detectFloatOk, mountCurrents, type CurrentsHandle } from './overlay/currents';
-import { velocityGridFromJson } from './overlay/currentsField';
+import { velocityStackFromJson, type VelocityStack } from './overlay/currentsField';
+import { interpolateGrid } from './overlay/currentsTime';
 import { mountBuoys, parseBuoysJson, stationsOnChart, type BuoysHandle } from './overlay/buoys';
 import { mountAircraft, parseAircraftJson, type AircraftHandle } from './overlay/aircraft';
 import {
@@ -39,7 +40,14 @@ import {
   shouldReprobeAircraft,
   type Aircraft,
 } from './overlay/aircraftUi';
-import { availabilityFromHttp, defaultOn, oceanCaption, unavailableOceanResponse } from './overlay/oceanUi';
+import {
+  availabilityFromHttp,
+  currentsCaption,
+  defaultOn,
+  formatValidZ,
+  unavailableOceanResponse,
+} from './overlay/oceanUi';
+import { speedLegendTicks, speedRampCss } from './overlay/speedRamp';
 import {
   mountAbout,
   mountControls,
@@ -139,14 +147,6 @@ function setOceanRadios(
   if (choice) {
     choice.checked = true;
   }
-}
-
-function oceanValidTime(raw: unknown): string | null {
-  if (raw && typeof raw === 'object' && 'validTime' in raw) {
-    const t = (raw as { validTime: unknown }).validTime;
-    return typeof t === 'string' && t !== '' ? t : null;
-  }
-  return null;
 }
 
 function hycomDatasetId(currentsRaw: unknown): string | null {
@@ -300,6 +300,7 @@ async function start(): Promise<void> {
   const navHelp = requireEl<HTMLElement>('nav-help');
   const navHelpToggle = requireEl<HTMLButtonElement>('nav-help-toggle');
   const legendRoot = requireEl<HTMLElement>('legend');
+  const currentsLegend = requireEl<HTMLElement>('currents-legend');
   const locatorRoot = requireEl<HTMLElement>('locator');
   const labelsRoot = requireEl<HTMLElement>('geo-labels');
   const buoyMarks = requireEl<HTMLElement>('buoy-marks');
@@ -409,7 +410,13 @@ async function start(): Promise<void> {
   let currentsHandle: CurrentsHandle | null = null;
   let buoysHandle: BuoysHandle | null = null;
   let aircraftHandle: AircraftHandle | null = null;
-  let currentsValid: string | null = null;
+  // The time cursor (repaint the field toward "now") and the ETag poll (fetch
+  // a fresh forecast stack) are deliberately separate cadences.
+  const CURRENTS_POLL_MS = 15 * 60 * 1000;
+  const CURSOR_MS = 30 * 1000;
+  let currentsStack: VelocityStack | null = null;
+  let currentsEtag: string | null = null;
+  let lastCursor = 0;
   let buoysValid: string | null = null;
   let oceanOn = { currents: false, buoys: false };
   let aircraftOn = false;
@@ -526,10 +533,9 @@ async function start(): Promise<void> {
 
   const setCaption = (exag: number): void => {
     const base = `Looking north · Mississippi Sound · ${depthSource} · ${exag}× vertical`;
-    const ocean = oceanCaption(
-      oceanOn.currents ? currentsValid : null,
-      oceanOn.buoys ? buoysValid : null,
-    );
+    const currentsPart = currentsCaption(oceanOn.currents ? currentsStack : null, Date.now());
+    const buoysPart = oceanOn.buoys && buoysValid ? `Buoys NDBC ${formatValidZ(buoysValid)}` : '';
+    const ocean = [currentsPart, buoysPart].filter(Boolean).join(' · ');
     const air = aircraftOn ? aircraftCaption(aircraftSource, aircraftFetchedAt) : '';
     const parts = [base];
     if (ocean) {
@@ -569,6 +575,7 @@ async function start(): Promise<void> {
       const aircraftWasOn = aircraftOn;
       aircraftOn = state.aircraft;
       currentsHandle?.setEnabled(state.currents);
+      currentsLegend.hidden = !state.currents;
       if (buoysHandle) {
         buoyMarks.hidden = !state.buoys;
         buoysHandle.setEnabled(state.buoys);
@@ -621,7 +628,9 @@ async function start(): Promise<void> {
         buoysRaw = null;
       }
     }
-    const grid = velocityGridFromJson(currentsRaw);
+    currentsStack = velocityStackFromJson(currentsRaw);
+    currentsEtag = currentsRes.headers.get('ETag');
+    const grid = currentsStack ? interpolateGrid(currentsStack, Date.now()) : null;
     const buoysParsed = parseBuoysJson(buoysRaw);
     const avail = { currents: grid != null, buoys: buoysParsed != null };
     const layersOn = defaultOn(avail);
@@ -631,6 +640,15 @@ async function start(): Promise<void> {
     if (grid) {
       currentsHandle = mountCurrents(scene, grid, { reducedMotion: reduced, floatOk });
       currentsHandle.setEnabled(layersOn.currents);
+      lastCursor = Date.now();
+      currentsLegend.innerHTML = `
+        <p class="legend-title">Current speed</p>
+        <div class="legend-ramp" style="background: ${speedRampCss()};"></div>
+        <ul class="legend-ticks">${speedLegendTicks()
+          .map((tick) => `<li>${tick.label}</li>`)
+          .join('')}</ul>
+      `;
+      currentsLegend.hidden = !layersOn.currents;
     }
     if (buoysParsed) {
       buoysHandle = mountBuoys(buoyMarks, stationsOnChart(buoysParsed.stations, aoi), aoi);
@@ -640,7 +658,6 @@ async function start(): Promise<void> {
       buoyMarks.hidden = true;
     }
 
-    currentsValid = grid ? oceanValidTime(currentsRaw) : null;
     buoysValid = buoysParsed?.validTime ?? null;
     const datasetId = hycomDatasetId(currentsRaw);
     if (datasetId) {
@@ -652,6 +669,27 @@ async function start(): Promise<void> {
     oceanOn = { currents: layersOn.currents, buoys: layersOn.buoys };
     setCaption(exaggeration);
   })();
+
+  // Steady state must not re-download the stack: send the ETag and treat a
+  // 304 as "nothing changed." A failed poll keeps the stack already loaded.
+  const pollCurrents = async (): Promise<void> => {
+    try {
+      const headers: HeadersInit = currentsEtag ? { 'If-None-Match': currentsEtag } : {};
+      const res = await fetch('/api/ocean/currents', { headers });
+      if (res.status === 304 || !res.ok) {
+        return;
+      }
+      const next = velocityStackFromJson(await res.json());
+      if (next) {
+        currentsStack = next;
+        currentsEtag = res.headers.get('ETag');
+        lastCursor = 0;
+      }
+    } catch {
+      // A failed poll keeps the stack already loaded.
+    }
+  };
+  window.setInterval(() => void pollCurrents(), CURRENTS_POLL_MS);
 
   void pullAircraft();
 
@@ -741,6 +779,14 @@ async function start(): Promise<void> {
     }
 
     currentsHandle?.tick(clock.getDelta());
+    // Separate cadence from the particle sim above: repaint the field toward
+    // wall-clock "now" every 30s, independent of the 15-minute ETag poll.
+    const nowMs = Date.now();
+    if (currentsStack && currentsHandle && nowMs - lastCursor >= CURSOR_MS) {
+      lastCursor = nowMs;
+      currentsHandle.setGrid(interpolateGrid(currentsStack, nowMs));
+      setCaption(exaggeration);
+    }
 
     if (hovering && readoutEl.dataset.buoy !== '1' && readoutEl.dataset.aircraft !== '1') {
       raycaster.setFromCamera(pointer, camera);

@@ -1,7 +1,14 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { detectFloatOk, makePointGeometry, makeTrailGeometry, TRAIL_SEGMENTS } from './currentsGpu.ts';
-import { PARTICLE_COUNT } from './currentsField.ts';
+import * as THREE from 'three';
+import {
+  detectFloatOk,
+  makePointGeometry,
+  makeStaticArrows,
+  makeTrailGeometry,
+  TRAIL_SEGMENTS,
+} from './currentsGpu.ts';
+import { PARTICLE_COUNT, type VelocityGrid } from './currentsField.ts';
 
 describe('makeTrailGeometry', () => {
   it('builds one line segment per trail segment per particle', () => {
@@ -32,6 +39,44 @@ describe('makePointGeometry', () => {
     const geo = makePointGeometry();
     assert.equal(geo.drawRange.count, PARTICLE_COUNT);
     assert.equal(geo.getAttribute('position').count, PARTICLE_COUNT);
+  });
+});
+
+function singleCellGrid(u: number, v: number): VelocityGrid {
+  return {
+    nx: 1,
+    ny: 1,
+    bbox: { west: -90, south: 30, east: -89, north: 31 },
+    u: [u],
+    v: [v],
+  };
+}
+
+describe('makeStaticArrows', () => {
+  // The reduced-motion / no-float-texture fallback path: below this speed an
+  // arrow is noise, not signal (ARROW_MIN_MS = 0.02 m/s in currents.ts).
+  it('drops a cell below the speed floor', () => {
+    const group = makeStaticArrows(singleCellGrid(0.01, 0));
+    const lines = group.children[0] as THREE.LineSegments;
+    assert.equal(lines.geometry.getAttribute('position').count, 0);
+  });
+
+  it('draws a shaft plus a two-segment arrowhead for a surviving cell', () => {
+    const group = makeStaticArrows(singleCellGrid(1, 0));
+    const lines = group.children[0] as THREE.LineSegments;
+    const pos = lines.geometry.getAttribute('position');
+    // One shaft segment + two barbs = 3 line segments = 6 vertices.
+    assert.equal(pos.count, 6);
+  });
+
+  it('carries a per-vertex color attribute the same length as position', () => {
+    const group = makeStaticArrows(singleCellGrid(1, 0));
+    const lines = group.children[0] as THREE.LineSegments;
+    const pos = lines.geometry.getAttribute('position');
+    const col = lines.geometry.getAttribute('color');
+    assert.ok(col, 'color attribute must exist');
+    assert.equal(col.count, pos.count);
+    assert.equal(col.array.length, pos.array.length);
   });
 });
 
