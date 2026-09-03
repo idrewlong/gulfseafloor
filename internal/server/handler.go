@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -14,16 +15,29 @@ type Server struct {
 	tiles *tileStore
 	web   http.Handler
 	ac    *aircraftCache
+	oc    *oceanCache
 }
 
 // New returns a handler with security headers applied to every response.
+// It does not start background refresh; use NewWithContext for that.
 func New(cfg Config) http.Handler {
+	return newServer(context.Background(), cfg, false)
+}
+
+// NewWithContext returns a handler and starts background ocean refresh,
+// which stops when ctx is done.
+func NewWithContext(ctx context.Context, cfg Config) http.Handler {
+	return newServer(ctx, cfg, true)
+}
+
+func newServer(ctx context.Context, cfg Config, refresh bool) http.Handler {
 	cfg = cfg.withDefaults()
 	s := &Server{
 		cfg:   cfg,
 		tiles: newTileStore(cfg.TileDir, cfg.TileWorkers),
 		web:   handleSPA(resolveWeb(cfg)),
 		ac:    newAircraftCache(cfg),
+		oc:    newOceanCache(),
 	}
 
 	mux := http.NewServeMux()
@@ -38,6 +52,10 @@ func New(cfg Config) http.Handler {
 	mux.HandleFunc("/healthz", handleHealthz)
 	mux.HandleFunc("/readyz", s.handleReadyz)
 	mux.Handle("/", s.web)
+
+	if refresh {
+		s.startOceanRefresh(ctx)
+	}
 
 	return securityHeaders(withAccessLog(mux), cfg.CORSOrigin)
 }

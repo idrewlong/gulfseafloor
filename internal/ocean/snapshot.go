@@ -100,6 +100,16 @@ func DecodeCurrentsFile(path string) (Currents, error) {
 	return DecodeCurrents(f)
 }
 
+// DecodeBuoysFile opens path and runs DecodeBuoys.
+func DecodeBuoysFile(path string) (Buoys, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return Buoys{}, err
+	}
+	defer f.Close()
+	return DecodeBuoys(f)
+}
+
 func replaceDir(tmp, dir string) error {
 	_, err := os.Stat(dir)
 	if err != nil {

@@ -33,6 +33,23 @@ func (s *Server) handleOcean(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	if name == "currents" {
+		if body, etag, ok := s.oc.get(); ok {
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("Cache-Control", oceanCacheControl)
+			w.Header().Set("ETag", etag)
+			if match := r.Header.Get("If-None-Match"); match == etag {
+				w.WriteHeader(http.StatusNotModified)
+				return
+			}
+			if r.Method == http.MethodHead {
+				w.WriteHeader(http.StatusOK)
+				return
+			}
+			_, _ = w.Write(body)
+			return
+		}
+	}
 	path, err := oceanFilePath(s.cfg.OceanDir, name)
 	if err != nil {
 		w.WriteHeader(http.StatusNotFound)
@@ -66,9 +83,14 @@ func (s *Server) handleOcean(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sum := sha256.Sum256(data)
+	etag := `"` + hex.EncodeToString(sum[:]) + `"`
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", oceanCacheControl)
-	w.Header().Set("ETag", `"`+hex.EncodeToString(sum[:])+`"`)
+	w.Header().Set("ETag", etag)
+	if match := r.Header.Get("If-None-Match"); match == etag {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
 	if r.Method == http.MethodHead {
 		w.WriteHeader(http.StatusOK)
 		return

@@ -34,29 +34,31 @@ func main() {
 
 	addr := env("GULF_ADDR", ":8080")
 	cfg := server.Config{
-		TileDir:         env("GULF_TILE_DIR", "data/tiles"),
-		WebDir:          env("GULF_WEB_DIR", "web/dist"),
-		Embed:           webFS,
-		CORSOrigin:      os.Getenv("GULF_CORS_ORIGIN"),
-		TileWorkers:     envInt("GULF_TILE_WORKERS", 0),
-		OceanDir:        env("GULF_OCEAN_DIR", "data/ocean"),
-		AircraftEnabled: os.Getenv("GULF_AIRCRAFT") != "0",
-		OpenSkyURL:      os.Getenv("GULF_OPENSKY_URL"),
-		AdsbLolURL:      os.Getenv("GULF_ADSBLOL_URL"),
+		TileDir:             env("GULF_TILE_DIR", "data/tiles"),
+		WebDir:              env("GULF_WEB_DIR", "web/dist"),
+		Embed:               webFS,
+		CORSOrigin:          os.Getenv("GULF_CORS_ORIGIN"),
+		TileWorkers:         envInt("GULF_TILE_WORKERS", 0),
+		OceanDir:            env("GULF_OCEAN_DIR", "data/ocean"),
+		AircraftEnabled:     os.Getenv("GULF_AIRCRAFT") != "0",
+		OpenSkyURL:          os.Getenv("GULF_OPENSKY_URL"),
+		AdsbLolURL:          os.Getenv("GULF_ADSBLOL_URL"),
+		OceanRefreshEnabled: os.Getenv("GULF_OCEAN_REFRESH") != "0",
+		HYCOMURL:            os.Getenv("GULF_HYCOM_URL"),
 	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
 
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           server.New(cfg),
+		Handler:           server.NewWithContext(ctx, cfg),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      30 * time.Second,
 		IdleTimeout:       60 * time.Second,
 		MaxHeaderBytes:    1 << 20,
 	}
-
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
 
 	errCh := make(chan error, 1)
 	go func() {
