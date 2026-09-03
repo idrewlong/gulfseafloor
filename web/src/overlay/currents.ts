@@ -8,7 +8,8 @@ import {
   staticArrows,
   type VelocityGrid,
 } from './currentsField';
-import { makePointGeometry, makeTrailGeometry } from './currentsGpu';
+import { makePointGeometry, makeTrailGeometry, TRAIL_SEGMENTS } from './currentsGpu';
+import { speedColor, SPEED_MAX_MS } from './speedRamp';
 import advectFrag from './shaders/advect.frag.glsl?raw';
 import trailVert from './shaders/trail.vert.glsl?raw';
 import trailFrag from './shaders/trail.frag.glsl?raw';
@@ -18,7 +19,6 @@ import particleFrag from './shaders/particle.frag.glsl?raw';
 const STATE_W = 128;
 const STATE_H = 64;
 const LIFT_Z = 18;
-const TRAIL_CYAN = 0x8cc7d1;
 
 const ADVECT_VERT = `precision highp float;
 void main() {
@@ -74,6 +74,7 @@ function overlayStateUniforms(
     uGridNorth: { value: grid.bbox.north },
     uFlowScale: { value: FLOW_SCALE },
     uTrailLag: { value: TRAIL_LAG_SEC },
+    uSpeedMax: { value: SPEED_MAX_MS },
   };
 }
 
@@ -137,22 +138,48 @@ function makeStateRT(): THREE.WebGLRenderTarget {
   return rt;
 }
 
+/** Below this the arrow is noise, not signal. */
+const ARROW_MIN_MS = 0.02;
+const ARROW_HEAD_FRAC = 0.3;
+
 export function makeStaticArrows(grid: VelocityGrid): THREE.Group {
   const group = new THREE.Group();
   group.name = 'currents-arrows';
   const pts: number[] = [];
+  const cols: number[] = [];
   for (const a of staticArrows(grid)) {
+    const speed = Math.hypot(a.u, a.v);
+    if (speed < ARROW_MIN_MS) {
+      continue;
+    }
+    const rgb = speedColor(speed);
     const a0 = lonLatToLocal(a.lon, a.lat);
     const next = advect(a.lon, a.lat, a.u, a.v, TRAIL_LAG_SEC, FLOW_SCALE);
     const a1 = lonLatToLocal(next.lon, next.lat);
-    pts.push(a0.x, a0.y, LIFT_Z, a1.x, a1.y, LIFT_Z);
+    const dx = a1.x - a0.x;
+    const dy = a1.y - a0.y;
+    const len = Math.hypot(dx, dy) || 1;
+    const ux = dx / len;
+    const uy = dy / len;
+    const head = len * ARROW_HEAD_FRAC;
+    const push = (x0: number, y0: number, x1: number, y1: number): void => {
+      pts.push(x0, y0, LIFT_Z, x1, y1, LIFT_Z);
+      cols.push(rgb[0], rgb[1], rgb[2], rgb[0], rgb[1], rgb[2]);
+    };
+    push(a0.x, a0.y, a1.x, a1.y);
+    // Two barbs at +/-150 degrees from the shaft make it read as an arrow.
+    for (const sign of [1, -1]) {
+      const ang = Math.atan2(uy, ux) + sign * (Math.PI * 5) / 6;
+      push(a1.x, a1.y, a1.x + Math.cos(ang) * head, a1.y + Math.sin(ang) * head);
+    }
   }
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3));
   const mat = new THREE.LineBasicMaterial({
-    color: TRAIL_CYAN,
+    vertexColors: true,
     transparent: true,
-    opacity: 0.7,
+    opacity: 0.85,
     depthTest: false,
     depthWrite: false,
   });
@@ -196,7 +223,8 @@ function makeGpu(grid: VelocityGrid): GpuSim {
   const trailGeo = makeTrailGeometry();
   const trailMat = new THREE.ShaderMaterial({
     uniforms: overlayStateUniforms(grid, velTex, stateTex, mPerDeg),
-    vertexShader: trailVert,
+    // TRAIL_STEPS must match TRAIL_SEGMENTS: it bounds the back-integration loop per vertex.
+    vertexShader: `#define TRAIL_STEPS ${TRAIL_SEGMENTS}\n${trailVert}`,
     fragmentShader: trailFrag,
     transparent: true,
     depthTest: false,
@@ -211,8 +239,7 @@ function makeGpu(grid: VelocityGrid): GpuSim {
   const pointGeo = makePointGeometry();
   const pointMat = new THREE.ShaderMaterial({
     uniforms: {
-      uStatePos: { value: stateTex },
-      uStateSize: { value: new THREE.Vector2(STATE_W, STATE_H) },
+      ...overlayStateUniforms(grid, velTex, stateTex, mPerDeg),
       uPointSize: { value: 8 },
     },
     vertexShader: particleVert,

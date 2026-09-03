@@ -12,9 +12,14 @@ uniform float uGridEast;
 uniform float uGridNorth;
 uniform float uFlowScale;
 uniform float uTrailLag;
+uniform float uSpeedMax;
 
 attribute float aId;
-attribute float aEnd;
+attribute float aT;
+
+varying float vT;
+varying float vSpeed;
+varying vec3 vColor;
 
 bool inGrid(float lon, float lat) {
   return lon >= uGridWest && lon <= uGridEast && lat >= uGridSouth && lat <= uGridNorth;
@@ -36,15 +41,49 @@ vec4 sampleVel(float lon, float lat) {
   return texture2D(uVelTex, velUv);
 }
 
+// Ramp must match speedRamp.ts. Faster reads brighter.
+vec3 speedColor(float speedMs) {
+  float f = clamp(speedMs / uSpeedMax, 0.0, 1.0);
+  vec3 c0 = vec3(0.09, 0.13, 0.36);
+  vec3 c1 = vec3(0.13, 0.42, 0.63);
+  vec3 c2 = vec3(0.25, 0.72, 0.78);
+  vec3 c3 = vec3(0.55, 0.90, 0.75);
+  vec3 c4 = vec3(0.97, 0.95, 0.70);
+  float s = f * 4.0;
+  vec3 c = mix(c0, c1, clamp(s, 0.0, 1.0));
+  c = mix(c, c2, clamp(s - 1.0, 0.0, 1.0));
+  c = mix(c, c3, clamp(s - 2.0, 0.0, 1.0));
+  c = mix(c, c4, clamp(s - 3.0, 0.0, 1.0));
+  return c;
+}
+
 void main() {
   float x = mod(aId, uStateSize.x);
   float y = floor(aId / uStateSize.x);
   vec2 uv = (vec2(x, y) + 0.5) / uStateSize;
   vec4 st = texture2D(uStatePos, uv);
-  vec2 head = st.xy;
-  vec2 ll = toLonLat(head);
-  vec4 vel = sampleVel(ll.x, ll.y);
-  vec2 tail = head - vec2(vel.r, vel.g) * uTrailLag * uFlowScale;
-  vec2 xy = aEnd > 0.5 ? head : tail;
-  gl_Position = projectionMatrix * modelViewMatrix * vec4(xy, 18.0, 1.0);
+
+  vec2 pos = st.xy;
+  vec4 headVel = sampleVel(toLonLat(pos).x, toLonLat(pos).y);
+  vSpeed = length(headVel.rg);
+  vT = aT;
+  vColor = speedColor(vSpeed);
+
+  // Back-integrate the field from the head. This traces a streamline, not a
+  // pathline: over a ~4 s visual lag on a quasi-steady field the two
+  // coincide, and it costs no history buffer.
+  float steps = floor(aT * float(TRAIL_STEPS) + 0.5);
+  float dt = uTrailLag / float(TRAIL_STEPS);
+  for (int i = 0; i < TRAIL_STEPS; i++) {
+    if (float(i) >= steps) {
+      break;
+    }
+    vec2 ll = toLonLat(pos);
+    vec4 vel = sampleVel(ll.x, ll.y);
+    if (vel.b < 0.999) {
+      break;
+    }
+    pos -= vec2(vel.r, vel.g) * dt * uFlowScale;
+  }
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 18.0, 1.0);
 }

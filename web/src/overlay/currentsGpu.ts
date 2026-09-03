@@ -12,20 +12,28 @@ export function detectFloatOk(renderer: { extensions: { has(name: string): boole
   }
 }
 
+/** Vertices per trail. More segments buy curvature, at 2 vertices each. */
+export const TRAIL_SEGMENTS = 8;
+
 export function makeTrailGeometry(): THREE.BufferGeometry {
-  const verts = PARTICLE_COUNT * 2;
+  const verts = PARTICLE_COUNT * TRAIL_SEGMENTS * 2;
   const ids = new Float32Array(verts);
-  const ends = new Float32Array(verts);
+  const ts = new Float32Array(verts);
+  let o = 0;
   for (let i = 0; i < PARTICLE_COUNT; i++) {
-    ids[i * 2] = i;
-    ids[i * 2 + 1] = i;
-    ends[i * 2] = 0;
-    ends[i * 2 + 1] = 1;
+    for (let s = 0; s < TRAIL_SEGMENTS; s++) {
+      ids[o] = i;
+      ts[o] = s / TRAIL_SEGMENTS;
+      o++;
+      ids[o] = i;
+      ts[o] = (s + 1) / TRAIL_SEGMENTS;
+      o++;
+    }
   }
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(verts * 3), 3));
   geo.setAttribute('aId', new THREE.BufferAttribute(ids, 1));
-  geo.setAttribute('aEnd', new THREE.BufferAttribute(ends, 1));
+  geo.setAttribute('aT', new THREE.BufferAttribute(ts, 1));
   geo.setDrawRange(0, verts);
   return geo;
 }
