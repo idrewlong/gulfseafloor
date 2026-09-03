@@ -126,6 +126,11 @@ func utcLayer(info *LayerInfo, name string) error {
 		return fmt.Errorf("ocean: manifest: %s validTime %w", name, err)
 	}
 	info.ValidTime = t
+	r, err := requireUTCPtr(info.RetrievedAt)
+	if err != nil {
+		return fmt.Errorf("ocean: manifest: %s retrievedAt %w", name, err)
+	}
+	info.RetrievedAt = r
 	return nil
 }
 

@@ -146,7 +146,46 @@ func FetchCurrents(ctx context.Context, client *http.Client, base string, aoi BB
 	merged.Grid = "centers"
 	merged.Steps = steps
 	merged.ValidTime = steps[0].ValidTime
+	// merged.Source was copied from the first successful step above, so its
+	// URL is that one step's single time= query — true of that request, but
+	// not of the 10-step stack being persisted. Overwrite it with the base
+	// NCSS URL plus the window this stack actually covers, or currents.json
+	// would cite a single forecast hour as the provenance of the whole
+	// stack.
+	if src, err := currentsStackSourceURL(base, aoi, steps[0].ValidTime, steps[len(steps)-1].ValidTime); err == nil {
+		merged.Source.URL = src
+	}
 	return merged, nil
+}
+
+// currentsStackSourceURL builds the URL recorded as a merged stack's
+// provenance: the same NCSS query CurrentsQuery issues per step, but with
+// time_start/time_end spanning the whole covered window instead of a single
+// time=, so it describes the stack rather than misrepresenting one of its
+// steps as the whole.
+func currentsStackSourceURL(base string, aoi BBox, start, end time.Time) (string, error) {
+	base = strings.TrimSpace(base)
+	if base == "" {
+		return "", fmt.Errorf("ocean: currents: empty HYCOM base URL")
+	}
+	u, err := url.Parse(base)
+	if err != nil {
+		return "", fmt.Errorf("ocean: currents: %w", err)
+	}
+	q := url.Values{}
+	q.Add("var", "water_u")
+	q.Add("var", "water_v")
+	q.Set("north", fmt.Sprintf("%g", aoi.North))
+	q.Set("south", fmt.Sprintf("%g", aoi.South))
+	q.Set("west", fmt.Sprintf("%g", aoi.West))
+	q.Set("east", fmt.Sprintf("%g", aoi.East))
+	q.Set("horizStride", "1")
+	q.Set("vertCoord", "0")
+	q.Set("accept", "netcdf")
+	q.Set("time_start", start.UTC().Format(time.RFC3339))
+	q.Set("time_end", end.UTC().Format(time.RFC3339))
+	u.RawQuery = q.Encode()
+	return u.String(), nil
 }
 
 // fetchHYCOM downloads and parses one HYCOM URL against aoi. Shared by
@@ -154,7 +193,7 @@ func FetchCurrents(ctx context.Context, client *http.Client, base string, aoi BB
 // forecast stack) so the fetch/parse/dataset/bbox-check sequence lives in
 // exactly one place.
 func fetchHYCOM(ctx context.Context, client *http.Client, rawURL string, aoi BBox) (Currents, error) {
-	body, status, err := getCapped(ctx, client, rawURL, hycomCSVLimit, false)
+	body, status, err := getCapped(ctx, client, rawURL, hycomBodyLimit, false)
 	if err != nil {
 		return Currents{}, fmt.Errorf("ocean: fetch hycom: %w", err)
 	}

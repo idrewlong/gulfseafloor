@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-const hycomCSVLimit = 8 << 20 // 8 MiB
+const hycomBodyLimit = 8 << 20 // 8 MiB
 
 var hycomUnit = regexp.MustCompile(`(?i)\[unit=[^\]]*\]`)
 
@@ -27,7 +27,7 @@ type hycomCell struct {
 // cell-center velocity grid. Unique longitudes are west to east, unique
 // latitudes south to north; missing and NaN velocities become nil cells.
 func ParseHYCOMCSV(r io.Reader, src Source) (Currents, error) {
-	data, err := io.ReadAll(io.LimitReader(r, hycomCSVLimit))
+	data, err := io.ReadAll(io.LimitReader(r, hycomBodyLimit))
 	if err != nil {
 		return Currents{}, fmt.Errorf("ocean: hycom: %w", err)
 	}
@@ -215,7 +215,7 @@ func gridFromCells(cells []hycomCell, lons, lats []float64, validTime time.Time,
 
 // ParseHYCOM reads an NCSS CSV or classic NetCDF-3 subset.
 func ParseHYCOM(r io.Reader, src Source) (Currents, error) {
-	data, err := io.ReadAll(io.LimitReader(r, hycomCSVLimit))
+	data, err := io.ReadAll(io.LimitReader(r, hycomBodyLimit))
 	if err != nil {
 		return Currents{}, fmt.Errorf("ocean: hycom: %w", err)
 	}
@@ -231,7 +231,7 @@ func ParseHYCOM(r io.Reader, src Source) (Currents, error) {
 func dropHYCOMComments(data []byte) ([]byte, error) {
 	var out bytes.Buffer
 	sc := bufio.NewScanner(bytes.NewReader(data))
-	sc.Buffer(make([]byte, 0, 64*1024), hycomCSVLimit)
+	sc.Buffer(make([]byte, 0, 64*1024), hycomBodyLimit)
 	for sc.Scan() {
 		line := sc.Text()
 		trim := strings.TrimSpace(line)

@@ -60,7 +60,9 @@ func FetchSnapshot(ctx context.Context, client *http.Client, ep Endpoints, aoi B
 		Source:    Source{Name: "NDBC", URL: ep.StationTable},
 		Stations:  stations,
 	}
-	return WriteSnapshot(outDir, currents, buoys, retrieved)
+	// A one-shot make-ocean ingest fetches currents and buoys in the same
+	// pass, so both layers were genuinely retrieved at this instant.
+	return WriteSnapshot(outDir, currents, buoys, true, retrieved, &retrieved)
 }
 
 func fetchStations(ctx context.Context, client *http.Client, ep Endpoints, rows []TableRow) ([]Station, error) {

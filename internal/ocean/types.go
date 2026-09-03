@@ -69,6 +69,12 @@ type LayerInfo struct {
 	Present   bool       `json:"present"`
 	ValidTime *time.Time `json:"validTime"`
 	Count     int        `json:"count"`
+	// RetrievedAt is when this layer was actually fetched from its upstream.
+	// Optional and independent of the top-level Manifest.RetrievedAt: the
+	// currents refresher and the buoys ingest (`make ocean`) run on
+	// decoupled schedules, so one timestamp cannot honestly describe both.
+	// Nil when unknown (e.g. a manifest written before this field existed).
+	RetrievedAt *time.Time `json:"retrievedAt,omitempty"`
 }
 
 // Manifest is the inventory of files under data/ocean/.

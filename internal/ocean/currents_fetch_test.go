@@ -243,6 +243,46 @@ func TestFetchCurrentsReturnsPartialOnSomeStepFailures(t *testing.T) {
 	}
 }
 
+// TestFetchCurrentsSourceURLCoversWholeWindow guards F8: merged.Source used
+// to be copied verbatim from the first successful step, so currents.json's
+// source.url cited a single time= query as the provenance of the whole
+// 10-step stack. It must instead describe the window the persisted stack
+// actually covers.
+func TestFetchCurrentsSourceURLCoversWholeWindow(t *testing.T) {
+	now := time.Date(2026, 9, 3, 14, 0, 0, 0, time.UTC)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		tParam := r.URL.Query().Get("time")
+		body := "time,latitude[unit=degrees_north],longitude[unit=degrees_east],water_u[unit=m/s],water_v[unit=m/s]\n" +
+			tParam + ",29.6,-89.5,0.10,-0.02\n" +
+			tParam + ",29.6,-88.5,0.11,-0.03\n" +
+			tParam + ",30.6,-89.5,0.12,-0.04\n" +
+			tParam + ",30.6,-88.5,0.13,-0.05\n"
+		_, _ = w.Write([]byte(body))
+	}))
+	defer srv.Close()
+
+	c, err := FetchCurrents(context.Background(), srv.Client(), srv.URL, testAOI, now)
+	if err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
+	if len(c.Steps) != 10 {
+		t.Fatalf("steps = %d, want 10 (distinct time= per request)", len(c.Steps))
+	}
+	u, err := url.Parse(c.Source.URL)
+	if err != nil {
+		t.Fatalf("source.url did not parse: %v", err)
+	}
+	q := u.Query()
+	if q.Get("time") != "" {
+		t.Errorf("source.url still carries a single time=%q; a merged stack must not cite one step's query", q.Get("time"))
+	}
+	wantStart := c.Steps[0].ValidTime.UTC().Format(time.RFC3339)
+	wantEnd := c.Steps[len(c.Steps)-1].ValidTime.UTC().Format(time.RFC3339)
+	if q.Get("time_start") != wantStart || q.Get("time_end") != wantEnd {
+		t.Errorf("source.url window = [%s, %s], want [%s, %s]", q.Get("time_start"), q.Get("time_end"), wantStart, wantEnd)
+	}
+}
+
 func TestFetchCurrentsFailsWhenAllStepsFail(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "upstream down", http.StatusBadGateway)

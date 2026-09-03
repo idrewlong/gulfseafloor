@@ -118,9 +118,28 @@ func (s *Server) refreshOcean(ctx context.Context) {
 	// after this refresh would regress to the old snapshot. An unwritable
 	// dir is not fatal to serving: the freshly fetched stack still reaches
 	// the in-memory cache below.
-	if b, err := ocean.DecodeBuoysFile(filepath.Join(s.cfg.OceanDir, "buoys.json")); err != nil {
-		slog.Warn("ocean refresh: write-through skipped", "err", err)
-	} else if err := ocean.WriteSnapshot(s.cfg.OceanDir, c, b, now); err != nil {
+	//
+	// A missing or undecodable buoys.json (a fresh deploy where `make ocean`
+	// never ran, per config.go) must NOT skip this write-through: doing so
+	// left currents.json and manifest.json stuck on the seed snapshot
+	// forever, even though the in-memory cache had gone fresh. Fall back to
+	// an empty, honestly-labelled Buoys stand-in instead.
+	buoysPath := filepath.Join(s.cfg.OceanDir, "buoys.json")
+	b, err := ocean.DecodeBuoysFile(buoysPath)
+	buoysPresent := err == nil
+	var buoysRetrieved *time.Time
+	if !buoysPresent {
+		b = ocean.Buoys{ValidTime: now, Source: ocean.Source{Name: "NDBC"}}
+	} else if prev, err := ocean.DecodeManifestFile(filepath.Join(s.cfg.OceanDir, "manifest.json")); err == nil {
+		// This refresh only ever re-fetches currents (docs/data-sources.md),
+		// so the buoys retrieval time carried forward must be whatever the
+		// prior manifest already recorded — never "now", or the manifest
+		// would falsely claim NDBC was just re-polled. A prior manifest
+		// written before this field existed leaves it nil, which is left
+		// nil here too rather than guessed at.
+		buoysRetrieved = prev.Buoys.RetrievedAt
+	}
+	if err := ocean.WriteSnapshot(s.cfg.OceanDir, c, b, buoysPresent, now, buoysRetrieved); err != nil {
 		slog.Warn("ocean refresh: write-through", "err", err)
 	}
 
