@@ -34,25 +34,9 @@ func FetchSnapshot(ctx context.Context, client *http.Client, ep Endpoints, aoi B
 	}
 	retrieved := time.Now().UTC()
 
-	hycomBody, status, err := getCapped(ctx, client, ep.HYCOM, hycomCSVLimit, false)
-	if err != nil {
-		return fmt.Errorf("ocean: fetch hycom: %w", err)
-	}
-	if status != http.StatusOK {
-		return fmt.Errorf("ocean: fetch hycom: HTTP %d", status)
-	}
-	currents, err := ParseHYCOM(bytes.NewReader(hycomBody), Source{
-		Name: "HYCOM",
-		URL:  ep.HYCOM,
-	})
+	currents, err := fetchHYCOM(ctx, client, ep.HYCOM, aoi)
 	if err != nil {
 		return err
-	}
-	if currents.Source.Dataset == "" {
-		currents.Source.Dataset = hycomDatasetFromURL(ep.HYCOM)
-	}
-	if !currents.BBox.Intersects(aoi) {
-		return fmt.Errorf("ocean: fetch hycom: bbox does not intersect AOI")
 	}
 
 	tableBody, status, err := getCapped(ctx, client, ep.StationTable, stationTableLimit, false)
