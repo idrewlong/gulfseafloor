@@ -11,6 +11,7 @@ import {
   trailLagMix,
   trailTailOffset,
   velocityGridFromJson,
+  velocityStackFromJson,
   type VelocityGrid,
 } from './currentsField.ts';
 import { AOI } from '../geo.ts';
@@ -132,5 +133,52 @@ describe('velocityGridFromJson', () => {
       }),
       null,
     );
+  });
+});
+
+const bbox = { west: -89.7, south: 29.95, east: -87.85, north: 30.52 };
+
+describe('velocityStackFromJson', () => {
+  it('reads a multi-step stack', () => {
+    const stack = velocityStackFromJson({
+      grid: 'centers', nx: 2, ny: 1, bbox,
+      steps: [
+        { validTime: '2026-09-03T12:00:00Z', u: [0.1, null], v: [-0.05, null] },
+        { validTime: '2026-09-03T15:00:00Z', u: [0.3, null], v: [-0.07, null] },
+      ],
+    });
+    assert.ok(stack);
+    assert.equal(stack.times.length, 2);
+    assert.equal(stack.times[0], Date.parse('2026-09-03T12:00:00Z'));
+    assert.equal(stack.u[1]![0], 0.3);
+    assert.equal(stack.u[0]![1], null);
+  });
+
+  it('lifts the legacy flat shape to one step', () => {
+    const stack = velocityStackFromJson({
+      grid: 'centers', nx: 2, ny: 1, bbox,
+      validTime: '2026-08-26T00:00:00Z',
+      u: [0.1, 0.2], v: [-0.05, -0.06],
+    });
+    assert.ok(stack);
+    assert.equal(stack.times.length, 1);
+    assert.equal(stack.times[0], Date.parse('2026-08-26T00:00:00Z'));
+  });
+
+  it('rejects malformed input', () => {
+    const bad: unknown[] = [
+      { grid: 'corners', nx: 2, ny: 1, bbox, steps: [] },
+      { grid: 'centers', nx: 2, ny: 1, bbox, steps: [] },
+      { grid: 'centers', nx: 2, ny: 1, bbox, steps: [{ validTime: '2026-09-03T12:00:00Z', u: [0.1], v: [0.1, 0.2] }] },
+      { grid: 'centers', nx: 2, ny: 1, bbox, steps: [
+        { validTime: '2026-09-03T15:00:00Z', u: [0.1, 0.1], v: [0.1, 0.1] },
+        { validTime: '2026-09-03T12:00:00Z', u: [0.1, 0.1], v: [0.1, 0.1] },
+      ] },
+      { grid: 'centers', nx: 2, ny: 1, bbox, steps: [{ validTime: 'not-a-time', u: [0.1, 0.1], v: [0.1, 0.1] }] },
+      null,
+    ];
+    for (const raw of bad) {
+      assert.equal(velocityStackFromJson(raw), null);
+    }
   });
 });

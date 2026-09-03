@@ -91,6 +91,81 @@ export function velocityGridFromJson(raw: unknown): VelocityGrid | null {
   };
 }
 
+export type VelocityStack = {
+  nx: number;
+  ny: number;
+  bbox: BBox;
+  /** Epoch ms, strictly increasing. */
+  times: number[];
+  u: (number | null)[][];
+  v: (number | null)[][];
+};
+
+/**
+ * Map `/api/ocean/currents` onto a forecast stack. The legacy flat `u`/`v`
+ * shape becomes a one-step stack so an old snapshot still renders.
+ */
+export function velocityStackFromJson(raw: unknown): VelocityStack | null {
+  if (raw == null || typeof raw !== 'object') {
+    return null;
+  }
+  const o = raw as Record<string, unknown>;
+  if (o.grid !== 'centers') {
+    return null;
+  }
+  const nx = o.nx;
+  const ny = o.ny;
+  if (
+    typeof nx !== 'number' || typeof ny !== 'number' ||
+    !Number.isInteger(nx) || !Number.isInteger(ny) || nx <= 0 || ny <= 0
+  ) {
+    return null;
+  }
+  const b = o.bbox as Record<string, unknown> | undefined;
+  if (
+    !b || typeof b.west !== 'number' || typeof b.south !== 'number' ||
+    typeof b.east !== 'number' || typeof b.north !== 'number' ||
+    b.west >= b.east || b.south >= b.north
+  ) {
+    return null;
+  }
+  const need = nx * ny;
+
+  type RawStep = { validTime?: unknown; u?: unknown; v?: unknown };
+  let rawSteps: RawStep[];
+  if (Array.isArray(o.steps)) {
+    rawSteps = o.steps as RawStep[];
+  } else {
+    rawSteps = [{ validTime: o.validTime, u: o.u, v: o.v }];
+  }
+  if (rawSteps.length === 0) {
+    return null;
+  }
+
+  const times: number[] = [];
+  const u: (number | null)[][] = [];
+  const v: (number | null)[][] = [];
+  for (const step of rawSteps) {
+    if (typeof step.validTime !== 'string') {
+      return null;
+    }
+    const t = Date.parse(step.validTime);
+    if (!Number.isFinite(t)) {
+      return null;
+    }
+    if (times.length > 0 && t <= times[times.length - 1]!) {
+      return null;
+    }
+    if (!Array.isArray(step.u) || !Array.isArray(step.v) || step.u.length !== need || step.v.length !== need) {
+      return null;
+    }
+    times.push(t);
+    u.push(step.u.map(finiteOrNull));
+    v.push(step.v.map(finiteOrNull));
+  }
+  return { nx, ny, bbox: { west: b.west, south: b.south, east: b.east, north: b.north }, times, u, v };
+}
+
 function cellCentre(grid: VelocityGrid, ix: number, iy: number): { lon: number; lat: number } {
   const { nx, ny, bbox } = grid;
   const lon = nx <= 1 ? bbox.west : bbox.west + (ix / (nx - 1)) * (bbox.east - bbox.west);
