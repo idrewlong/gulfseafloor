@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -311,4 +312,173 @@ func waitForSteps(t *testing.T, h http.Handler, want int) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatalf("steps = %d, want %d before deadline", last, want)
+}
+
+// ndbcFixtureServer answers the station table and one realtime2 file, and
+// counts station-table hits so a test can tell a poll happened.
+func ndbcFixtureServer(t *testing.T, hits *int32) *httptest.Server {
+	t.Helper()
+	// Mirrors the live file: lower-case ids and free-text TTYPE.
+	table := "# STATION_ID | OWNER | TTYPE | HULL | NAME | PAYLOAD | LOCATION | TIMEZONE | FORECAST | NOTE\n" +
+		"wycm6|NOS|Water Level Observation Network||Gulfport Harbor||30.360 N 89.081 W|C| |\n" +
+		"42040|N|3-meter discus buoy|3D|Luke Offshore||30.100 N 89.100 W|C| |\n"
+	mux := http.NewServeMux()
+	mux.HandleFunc("/data/stations/station_table.txt", func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(hits, 1)
+		_, _ = w.Write([]byte(table))
+	})
+	mux.HandleFunc("/data/realtime2/WYCM6.txt", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, filepath.Join("..", "ocean", "testdata", "realtime2_wycm6.txt"))
+	})
+	mux.HandleFunc("/data/realtime2/42040.txt", func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "missing", http.StatusNotFound)
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// The bug this covers: before buoys had their own ticker, NDBC was fetched
+// only by the one-shot `make ocean`, so a long-running server served
+// week-old observations while its currents stayed fresh.
+func TestBuoyRefreshReplacesTheServedStations(t *testing.T) {
+	var hits int32
+	ndbc := ndbcFixtureServer(t, &hits)
+	dir := seedOceanDir(t)
+	now := time.Date(2026, 9, 3, 21, 0, 0, 0, time.UTC)
+
+	h := NewWithContext(t.Context(), Config{
+		TileDir:               t.TempDir(),
+		OceanDir:              dir,
+		OceanRefreshEnabled:   true,
+		NDBCBase:              ndbc.URL,
+		OceanClient:           ndbc.Client(),
+		OceanNow:              func() time.Time { return now },
+		BuoyFirstRefreshDelay: time.Millisecond,
+		BuoyRefreshEvery:      time.Hour,
+		// Park the currents ticker so only the buoy poll is under test.
+		OceanFirstRefreshDelay: time.Hour,
+		OceanRefreshEvery:      time.Hour,
+		HYCOMURL:               "http://127.0.0.1:0/unused",
+	})
+
+	waitFor(t, func() bool { return atomic.LoadInt32(&hits) > 0 })
+
+	var got ocean.Buoys
+	waitFor(t, func() bool {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/ocean/buoys", nil))
+		if rec.Code != http.StatusOK {
+			return false
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+			return false
+		}
+		// The seed fixture's single station carries no obsTime; the freshly
+		// polled one does.
+		return len(got.Stations) == 1 && got.Stations[0].ObsTime != nil
+	})
+
+	if got.Stations[0].ID != "WYCM6" {
+		t.Fatalf("station %q, want WYCM6", got.Stations[0].ID)
+	}
+	// The platform class must survive the fetch → serve round trip, or the
+	// viewer has nothing to pick a glyph from.
+	if got.Stations[0].Kind != ocean.KindFixed {
+		t.Fatalf("kind %q, want %q", got.Stations[0].Kind, ocean.KindFixed)
+	}
+}
+
+// A buoys-only poll must not restamp the currents layer as freshly
+// retrieved. This is the mirror of the invariant refreshOcean already keeps
+// for buoys, and it is the whole reason the manifest carries per-layer times.
+func TestBuoyRefreshDoesNotClaimACurrentsFetch(t *testing.T) {
+	var hits int32
+	ndbc := ndbcFixtureServer(t, &hits)
+	dir := seedOceanDir(t)
+
+	currentsRetrieved := time.Date(2026, 9, 3, 18, 30, 0, 0, time.UTC)
+	seedManifest := ocean.Manifest{
+		RetrievedAt: currentsRetrieved,
+		Currents:    ocean.LayerInfo{Present: true, RetrievedAt: &currentsRetrieved},
+		Buoys:       ocean.LayerInfo{Present: true},
+	}
+	mJSON, err := json.MarshalIndent(seedManifest, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "manifest.json"), mJSON, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Date(2026, 9, 3, 21, 0, 0, 0, time.UTC)
+	NewWithContext(t.Context(), Config{
+		TileDir:                t.TempDir(),
+		OceanDir:               dir,
+		OceanRefreshEnabled:    true,
+		NDBCBase:               ndbc.URL,
+		OceanClient:            ndbc.Client(),
+		OceanNow:               func() time.Time { return now },
+		BuoyFirstRefreshDelay:  time.Millisecond,
+		BuoyRefreshEvery:       time.Hour,
+		OceanFirstRefreshDelay: time.Hour,
+		OceanRefreshEvery:      time.Hour,
+		HYCOMURL:               "http://127.0.0.1:0/unused",
+	})
+
+	var m ocean.Manifest
+	waitFor(t, func() bool {
+		got, err := ocean.DecodeManifestFile(filepath.Join(dir, "manifest.json"))
+		if err != nil || got.Buoys.RetrievedAt == nil {
+			return false
+		}
+		m = got
+		return got.Buoys.RetrievedAt.Equal(now)
+	})
+
+	if m.Currents.RetrievedAt == nil || !m.Currents.RetrievedAt.Equal(currentsRetrieved) {
+		t.Fatalf("currents retrievedAt %v, want it carried forward as %v", m.Currents.RetrievedAt, currentsRetrieved)
+	}
+}
+
+// GULF_OCEAN_REFRESH=0 must mean zero egress, NDBC included. The air-gap
+// claim in the README is only literal if the new ticker respects it too.
+func TestBuoyRefreshDisabledMakesNoRequests(t *testing.T) {
+	dir := seedOceanDir(t)
+	h := NewWithContext(t.Context(), Config{
+		TileDir:               t.TempDir(),
+		OceanDir:              dir,
+		OceanRefreshEnabled:   false,
+		NDBCBase:              "http://ndbc.invalid",
+		OceanClient:           &http.Client{Transport: failingTransport{t}},
+		BuoyFirstRefreshDelay: time.Millisecond,
+		BuoyRefreshEvery:      time.Millisecond,
+	})
+	time.Sleep(50 * time.Millisecond)
+
+	// Priming is a pure local decode, so the seeded stations still serve.
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/ocean/buoys", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d, want 200", rec.Code)
+	}
+	var b ocean.Buoys
+	if err := json.Unmarshal(rec.Body.Bytes(), &b); err != nil {
+		t.Fatal(err)
+	}
+	if len(b.Stations) != 1 || b.Stations[0].ID != "WYCM6" {
+		t.Fatalf("stations %+v", b.Stations)
+	}
+}
+
+func waitFor(t *testing.T, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if cond() {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatal("condition not met within 3s")
 }

@@ -1,11 +1,22 @@
+import { setDetail, setPosition, type DetailBlock, type ElevationSample } from './inspector.ts';
+import { isDepthUnit, type DepthUnit } from './units.ts';
+
+// Re-exported so existing callers keep importing these from controls.
+export { formatLat, formatLon, formatElevation } from './format.ts';
+
 export type ViewerControls = {
   exaggeration: number;
   contourInterval: number;
   sunAzimuth: number;
   sunAltitude: number;
+  radar: boolean;
+  /** Procedural cloud deck, cloud shadow and rain, driven by the forecast. */
+  sky: boolean;
   currents: boolean;
   buoys: boolean;
   aircraft: boolean;
+  /** Readout units only. The chart itself is metres throughout. */
+  units: DepthUnit;
 };
 
 export type ControlsHandle = {
@@ -27,20 +38,6 @@ export function sunDirection(azimuthDeg: number, altitudeDeg: number): {
   };
 }
 
-export function formatLat(lat: number): string {
-  const hemi = lat >= 0 ? 'N' : 'S';
-  return `${Math.abs(lat).toFixed(4)}°${hemi}`;
-}
-
-export function formatLon(lon: number): string {
-  const hemi = lon >= 0 ? 'E' : 'W';
-  return `${Math.abs(lon).toFixed(4)}°${hemi}`;
-}
-
-export function formatElevation(metres: number): string {
-  const sign = metres > 0 ? '+' : metres < 0 ? '−' : '';
-  return `${sign}${Math.abs(metres).toFixed(1)} m`;
-}
 
 export function mountControls(
   form: HTMLFormElement,
@@ -54,10 +51,10 @@ export function mountControls(
   const azimuthOut = form.querySelector<HTMLOutputElement>('#sun-azimuth-out');
   const altitude = form.querySelector<HTMLInputElement>('#sun-altitude');
   const altitudeOut = form.querySelector<HTMLOutputElement>('#sun-altitude-out');
-  const ocean = form.querySelector<HTMLFieldSetElement>('#ocean');
-  const aircraft = form.querySelector<HTMLFieldSetElement>('#aircraft');
+  const layers = form.querySelector<HTMLFieldSetElement>('#layers');
+  const units = form.querySelector<HTMLFieldSetElement>('#units');
 
-  if (!exaggeration || !exaggerationOut || !contour || !azimuth || !azimuthOut || !altitude || !altitudeOut || !ocean || !aircraft) {
+  if (!exaggeration || !exaggerationOut || !contour || !azimuth || !azimuthOut || !altitude || !altitudeOut || !layers || !units) {
     throw new Error('control markup is incomplete');
   }
 
@@ -74,38 +71,41 @@ export function mountControls(
   if (contourInput) {
     contourInput.checked = true;
   }
-  const currentsInput = form.querySelector<HTMLInputElement>(
-    `input[name="currents"][value="${initial.currents ? '1' : '0'}"]`,
-  );
-  if (currentsInput) {
-    currentsInput.checked = true;
+  for (const [name, on] of [
+    ['radar', initial.radar],
+    ['sky', initial.sky],
+    ['currents', initial.currents],
+    ['buoys', initial.buoys],
+    ['aircraft', initial.aircraft],
+  ] as const) {
+    const box = form.querySelector<HTMLInputElement>(`input[name="${name}"]`);
+    if (box) {
+      box.checked = on;
+    }
   }
-  const buoysInput = form.querySelector<HTMLInputElement>(
-    `input[name="buoys"][value="${initial.buoys ? '1' : '0'}"]`,
+  const unitsInput = form.querySelector<HTMLInputElement>(
+    `input[name="units"][value="${initial.units}"]`,
   );
-  if (buoysInput) {
-    buoysInput.checked = true;
-  }
-  const aircraftInput = form.querySelector<HTMLInputElement>(
-    `input[name="aircraft"][value="${initial.aircraft ? '1' : '0'}"]`,
-  );
-  if (aircraftInput) {
-    aircraftInput.checked = true;
+  if (unitsInput) {
+    unitsInput.checked = true;
   }
 
   const read = (): ViewerControls => {
     const checked = form.querySelector<HTMLInputElement>('input[name="contour"]:checked');
-    const currents = form.querySelector<HTMLInputElement>('input[name="currents"]:checked');
-    const buoys = form.querySelector<HTMLInputElement>('input[name="buoys"]:checked');
-    const aircraftChoice = form.querySelector<HTMLInputElement>('input[name="aircraft"]:checked');
+    const on = (name: string): boolean =>
+      form.querySelector<HTMLInputElement>(`input[name="${name}"]`)?.checked === true;
+    const unitChoice = form.querySelector<HTMLInputElement>('input[name="units"]:checked');
     return {
       exaggeration: Number(exaggeration.value),
       contourInterval: Number(checked?.value ?? 0),
       sunAzimuth: Number(azimuth.value),
       sunAltitude: Number(altitude.value),
-      currents: currents?.value === '1',
-      buoys: buoys?.value === '1',
-      aircraft: aircraftChoice?.value === '1',
+      radar: on('radar'),
+      sky: on('sky'),
+      currents: on('currents'),
+      buoys: on('buoys'),
+      aircraft: on('aircraft'),
+      units: isDepthUnit(unitChoice?.value) ? unitChoice.value : 'm',
     };
   };
 
@@ -213,81 +213,77 @@ export function mountAbout(dialog: HTMLDialogElement, toggle: HTMLButtonElement)
   });
 }
 
-function restoreDepthReadout(el: HTMLElement): void {
-  if (el.querySelector('.readout-ll')) {
-    el.querySelector('.readout-buoy')?.remove();
-    el.querySelector('.readout-aircraft')?.remove();
-    return;
-  }
-  el.replaceChildren();
-  const ll = document.createElement('span');
-  ll.className = 'readout-ll';
-  ll.textContent = '—';
-  const depth = document.createElement('span');
-  depth.className = 'readout-depth';
-  depth.textContent = '—';
-  el.append(ll, depth);
-}
-
-/** Buoy focus/hover wins over depth pick until blur/leave. */
-export function setBuoyReadout(el: HTMLElement, text: string | null): void {
-  if (text != null) {
-    delete el.dataset.aircraft;
+/**
+ * Buoy and aircraft detail now render as their own block inside the
+ * inspector card rather than replacing the position and depth rows, so
+ * hovering a station no longer costs the reader the depth under it. These
+ * three wrappers stay as the overlays' entry points; the panel itself lives
+ * in ui/inspector.ts.
+ */
+export function setBuoyReadout(el: HTMLElement, detail: DetailBlock | null): void {
+  if (detail != null) {
     el.dataset.buoy = '1';
-    let node = el.querySelector<HTMLElement>('.readout-buoy');
-    if (!node) {
-      el.replaceChildren();
-      node = document.createElement('span');
-      node.className = 'readout-buoy';
-      el.append(node);
-    }
-    if (node.textContent !== text) {
-      node.textContent = text;
-    }
+    delete el.dataset.aircraft;
+    setDetail(el, detail);
     return;
   }
   delete el.dataset.buoy;
-  restoreDepthReadout(el);
+  // Only clear the block if an aircraft has not meanwhile claimed it.
+  if (el.dataset.aircraft !== '1') {
+    setDetail(el, null);
+  }
 }
 
-/** Aircraft focus/hover wins over depth pick until blur/leave. */
-export function setAircraftReadout(el: HTMLElement, text: string | null): void {
-  if (text != null) {
-    delete el.dataset.buoy;
+export function setAircraftReadout(el: HTMLElement, detail: DetailBlock | null): void {
+  if (detail != null) {
     el.dataset.aircraft = '1';
-    let node = el.querySelector<HTMLElement>('.readout-aircraft');
-    if (!node) {
-      el.replaceChildren();
-      node = document.createElement('span');
-      node.className = 'readout-aircraft';
-      el.append(node);
-    }
-    if (node.textContent !== text) {
-      node.textContent = text;
-    }
+    delete el.dataset.buoy;
+    setDetail(el, detail);
     return;
   }
   delete el.dataset.aircraft;
-  restoreDepthReadout(el);
+  if (el.dataset.buoy !== '1') {
+    setDetail(el, null);
+  }
 }
 
-export function setReadout(
-  el: HTMLElement,
-  sample: { lon: number; lat: number; elevation: number | null } | null,
-): void {
-  if (el.dataset.buoy === '1' || el.dataset.aircraft === '1') {
+let pendingClear = 0;
+
+/**
+ * The position rows track the pointer continuously, with one exception.
+ *
+ * Sliding the cursor from the terrain onto a station glyph fires the canvas's
+ * pointerleave *before* the mark's pointerenter, so a synchronous clear would
+ * blank the depth at the exact spot the reader is asking about — and testing
+ * the engaged flag inline does not help, because nothing has set it yet at
+ * that point. Deferring one frame lets the mark claim the card first; if it
+ * does, the clear is dropped and the depth beside the station stays readable,
+ * which is the whole reason the two now live in one card.
+ */
+export function setReadout(el: HTMLElement, sample: ElevationSample | null): void {
+  const raf = typeof requestAnimationFrame === 'function' ? requestAnimationFrame : null;
+  if (sample == null) {
+    if (!raf) {
+      setPosition(el, null);
+      return;
+    }
+    if (pendingClear) {
+      cancelAnimationFrame(pendingClear);
+    }
+    pendingClear = raf(() => {
+      pendingClear = 0;
+      if (el.dataset.buoy === '1' || el.dataset.aircraft === '1') {
+        return;
+      }
+      setPosition(el, null);
+    });
     return;
   }
-  const llEl = el.querySelector('.readout-ll');
-  const depthEl = el.querySelector('.readout-depth');
-  const ll = sample ? `${formatLat(sample.lat)} ${formatLon(sample.lon)}` : '—';
-  const depth = sample == null || sample.elevation === null ? '—' : formatElevation(sample.elevation);
-  if (llEl && llEl.textContent !== ll) {
-    llEl.textContent = ll;
+  if (pendingClear && raf) {
+    cancelAnimationFrame(pendingClear);
+    pendingClear = 0;
   }
-  if (depthEl && depthEl.textContent !== depth) {
-    depthEl.textContent = depth;
-  }
+  setPosition(el, sample);
 }
 
 export function setStatus(el: HTMLElement, message: string | null, warn = false): void {

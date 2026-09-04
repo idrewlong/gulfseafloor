@@ -10,6 +10,25 @@ describe('AOI', () => {
     assert.equal(AOI.west <= -90.135 && AOI.east >= -87.556, true);
     assert.equal(AOI.south <= 29.579 && AOI.north >= 30.294, true);
   });
+
+  it('reaches down the Birdfoot to Southwest Pass and out to the shelf break', () => {
+    // Venice is the town that pulled the chart south; Southwest Pass is the
+    // river mouth below it, and Na Kika sits out past the shelf break.
+    for (const [name, lon, lat] of [
+      ['Venice', -89.354, 29.277],
+      ['Southwest Pass', -89.429, 28.906],
+      ['Port Fourchon', -90.199, 29.114],
+      ['Na Kika', -88.289, 28.521],
+      ['Morgan City', -91.207, 29.699],
+      ['Pensacola', -87.217, 30.421],
+    ] as const) {
+      assert.equal(
+        lon >= AOI.west && lon <= AOI.east && lat >= AOI.south && lat <= AOI.north,
+        true,
+        `${name} should lie inside the AOI`,
+      );
+    }
+  });
 });
 
 describe('PLACES', () => {
@@ -48,6 +67,17 @@ describe('PLACES', () => {
       'Orange Beach',
       'New Orleans',
       'Mobile',
+      'Venice',
+      'Buras',
+      'Empire',
+      'Port Sulphur',
+      'Belle Chasse',
+      'Grand Isle',
+      'Port Fourchon',
+      'Morgan City',
+      'Houma',
+      'Pensacola',
+      'Navarre',
     ]) {
       assert.equal(names().includes(town), true, `missing ${town}`);
     }

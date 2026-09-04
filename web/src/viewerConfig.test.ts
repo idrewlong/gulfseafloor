@@ -16,9 +16,11 @@ describe('viewerConfig', () => {
     assert.equal(DEFAULT_EXAGGERATION, 1);
   });
 
-  it('depth window covers the Bight to its GEBCO floor of -81 m', () => {
-    assert.ok(DEFAULT_DEPTH_MIN <= -80);
-    assert.ok(DEFAULT_DEPTH_MIN >= -90);
+  it('depth window reaches the Mississippi Canyon floor of -2505 m', () => {
+    // The AOI stopped at -81 m before it was extended past Southwest Pass.
+    // The window has to clear the canyon now or a fifth of the chart clamps.
+    assert.ok(DEFAULT_DEPTH_MIN <= -2500);
+    assert.ok(DEFAULT_DEPTH_MIN >= -2600);
     assert.ok(DEFAULT_DEPTH_MAX >= 12);
   });
 

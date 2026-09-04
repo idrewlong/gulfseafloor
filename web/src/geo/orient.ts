@@ -1,4 +1,3 @@
-import { AOI } from '../geo.ts';
 import outlines from './sound-outlines.json' with { type: 'json' };
 
 export type LonLat = readonly [lon: number, lat: number];
@@ -46,7 +45,18 @@ function asLonLat(ring: Ring): LonLat[] {
 export const MAINLAND_COAST: readonly LonLat[] = asLonLat(outlines.coast);
 
 export const BARRIER_ISLANDS: readonly (readonly LonLat[])[] = (
-  ['cat', 'westShip', 'eastShip', 'horn', 'petitBois', 'dauphin', 'deer', 'round'] as const
+  [
+    'cat',
+    'westShip',
+    'eastShip',
+    'horn',
+    'petitBois',
+    'dauphin',
+    'deer',
+    'round',
+    'grandIsle',
+    'pointAuFer',
+  ] as const
 ).map((key) => {
   const ring = outlines.islands[key];
   const pts = asLonLat(ring);
@@ -94,6 +104,51 @@ export const PLACES: readonly Place[] = [
   { name: 'Lake Borgne', lon: -89.55, lat: 30.08, elev: 0, kind: 'water' },
   { name: 'Mississippi Sound', lon: -88.74, lat: 30.29, elev: 0, kind: 'water', rank: 2 },
   { name: 'Mobile Bay', lon: -87.98, lat: 30.40, elev: 0, kind: 'water' },
+  // Plaquemines Parish down the river to the Birdfoot, plus the Lafourche
+  // coast west of it. Everything below is new with the delta extension; the
+  // delta is barely above sea level, so these elevations are 1-3 m, not the
+  // 3-8 m the Mississippi coastal ridge carries.
+  { name: 'Belle Chasse', lon: -89.99, lat: 29.853, elev: 2, kind: 'city', rank: 2 },
+  { name: 'Port Sulphur', lon: -89.694, lat: 29.481, elev: 1, kind: 'city', rank: 2 },
+  { name: 'Empire', lon: -89.601, lat: 29.393, elev: 1, kind: 'city', rank: 2 },
+  { name: 'Buras', lon: -89.526, lat: 29.352, elev: 1, kind: 'city', rank: 2 },
+  { name: 'Venice', lon: -89.354, lat: 29.277, elev: 1, kind: 'city' },
+  { name: 'Pilottown', lon: -89.259, lat: 29.179, elev: 1, kind: 'city', rank: 3 },
+  { name: 'Grand Isle', lon: -89.957, lat: 29.237, elev: 2, kind: 'city' },
+  { name: 'Golden Meadow', lon: -90.259, lat: 29.378, elev: 2, kind: 'city', rank: 3 },
+  { name: 'Port Fourchon', lon: -90.199, lat: 29.104, elev: 1, kind: 'city', rank: 2 },
+  { name: 'Head of Passes', lon: -89.245, lat: 29.153, elev: 1, kind: 'feature' },
+  { name: 'Southwest Pass', lon: -89.42, lat: 28.97, elev: 0, kind: 'feature', rank: 1 },
+  { name: 'South Pass', lon: -89.14, lat: 29.02, elev: 0, kind: 'feature', rank: 2 },
+  { name: 'Pass a Loutre', lon: -89.05, lat: 29.198, elev: 0, kind: 'feature', rank: 2 },
+  // No Breton or Chandeleur label here on purpose: OSM has those chains only
+  // as points, so they carry no polygon and render as open water. Labelling
+  // them would put a place name on a patch of sea.
+  { name: 'Barataria Bay', lon: -89.95, lat: 29.42, elev: 0, kind: 'water' },
+  { name: 'Breton Sound', lon: -89.30, lat: 29.68, elev: 0, kind: 'water' },
+  { name: 'Timbalier Bay', lon: -90.42, lat: 29.10, elev: 0, kind: 'water', rank: 2 },
+  { name: 'Mississippi Canyon', lon: -89.20, lat: 28.66, elev: 0, kind: 'water' },
+  { name: 'Gulf of Mexico', lon: -88.30, lat: 28.85, elev: 0, kind: 'water', rank: 1 },
+  // West of Barataria: the Atchafalaya and Terrebonne coast, added when the
+  // chart was widened to a 16:9 box so the canyon clears the fold on load.
+  { name: 'Morgan City', lon: -91.207, lat: 29.699, elev: 2, kind: 'city', rank: 2 },
+  { name: 'Berwick', lon: -91.237, lat: 29.694, elev: 2, kind: 'city', rank: 3 },
+  { name: 'Houma', lon: -90.72, lat: 29.596, elev: 3, kind: 'city' },
+  { name: 'Cocodrie', lon: -90.661, lat: 29.245, elev: 1, kind: 'city', rank: 3 },
+  { name: 'Point au Fer', lon: -91.33, lat: 29.32, elev: 1, kind: 'feature', rank: 3 },
+  { name: 'Atchafalaya Bay', lon: -91.30, lat: 29.42, elev: 0, kind: 'water' },
+  { name: 'Terrebonne Bay', lon: -90.55, lat: 29.17, elev: 0, kind: 'water', rank: 2 },
+  { name: 'Ship Shoal', lon: -91.10, lat: 28.90, elev: 0, kind: 'water', rank: 3 },
+  // East of Perdido: the Florida panhandle shore and the DeSoto Canyon head.
+  { name: 'Pensacola', lon: -87.217, lat: 30.421, elev: 6, kind: 'city' },
+  { name: 'Gulf Breeze', lon: -87.163, lat: 30.357, elev: 4, kind: 'city', rank: 3 },
+  { name: 'Pensacola Beach', lon: -87.139, lat: 30.334, elev: 2, kind: 'city', rank: 3 },
+  { name: 'Navarre', lon: -86.862, lat: 30.402, elev: 4, kind: 'city', rank: 2 },
+  { name: 'Perdido Key', lon: -87.45, lat: 30.303, elev: 2, kind: 'feature', rank: 2 },
+  { name: 'Santa Rosa Island', lon: -86.95, lat: 30.345, elev: 2, kind: 'feature', rank: 1 },
+  { name: 'Pensacola Bay', lon: -87.145, lat: 30.46, elev: 0, kind: 'water' },
+  { name: 'DeSoto Canyon', lon: -86.90, lat: 29.15, elev: 0, kind: 'water' },
+  { name: 'Florida', lon: -86.80, lat: 30.62, elev: 8, kind: 'state' },
 ];
 
 /** Pearl River (LA–MS) and the Ellicott meridian (MS–AL), clipped past the AOI. */
@@ -128,33 +183,4 @@ export const STATE_LINES: readonly StateLine[] = [
   },
 ];
 
-/** Schematic Gulf of Mexico outline for the locator (lon, lat). */
-export const GULF_OUTLINE: readonly LonLat[] = [
-  [-97.4, 27.8],
-  [-97.2, 25.9],
-  [-96.9, 23.5],
-  [-97.4, 21.5],
-  [-94.8, 18.6],
-  [-90.8, 19.8],
-  [-88.2, 21.6],
-  [-86.8, 21.4],
-  [-84.4, 22.0],
-  [-81.8, 23.2],
-  [-81.1, 25.2],
-  [-81.5, 27.3],
-  [-82.7, 29.2],
-  [-84.0, 30.0],
-  [-85.5, 30.2],
-  [-87.5, 30.4],
-  [-88.5, 30.4],
-  [-89.2, 30.4],
-  [-90.0, 30.2],
-  [-91.4, 29.6],
-  [-92.6, 29.7],
-  [-93.8, 29.7],
-  [-95.0, 29.4],
-  [-96.4, 28.6],
-  [-97.4, 27.8],
-];
 
-export const LOCATOR_AOI = AOI;

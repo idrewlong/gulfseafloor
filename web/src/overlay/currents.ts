@@ -329,13 +329,16 @@ export function mountCurrents(
         pendingDt = 0;
       }
     },
-    setGrid(grid: VelocityGrid): void {
+    // Named `next` rather than `grid`: the mount-time grid is still in
+    // scope here, and shadowing it made it easy to misread which one the
+    // arrow rebuild below reads from.
+    setGrid(next: VelocityGrid): void {
       if (gpu) {
         const data = gpu.velTex.image.data as Float32Array;
-        const n = grid.nx * grid.ny;
+        const n = next.nx * next.ny;
         for (let i = 0; i < n; i++) {
-          const u = grid.u[i];
-          const v = grid.v[i];
+          const u = next.u[i];
+          const v = next.v[i];
           const o = i * 4;
           const ok = u != null && v != null;
           data[o] = ok ? u : 0;
@@ -348,7 +351,7 @@ export function mountCurrents(
       // Arrows are baked geometry, so they are rebuilt rather than updated.
       group.remove(arrows);
       disposeObject3D(arrows);
-      arrows = makeStaticArrows(grid);
+      arrows = makeStaticArrows(next);
       group.add(arrows);
       syncVisibility();
     },

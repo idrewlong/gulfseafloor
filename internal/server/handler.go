@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 )
 
@@ -15,7 +16,13 @@ type Server struct {
 	tiles *tileStore
 	web   http.Handler
 	ac    *aircraftCache
-	oc    *oceanCache
+	oc    *etagCache // currents stack
+	bc    *buoysCache
+	wrc   *etagCache // radar manifest
+	wfc   *etagCache // forecast manifest
+	// snapMu serializes snapshot write-throughs across the currents and
+	// buoys refreshers; see writeSnapshot.
+	snapMu sync.Mutex
 }
 
 // New returns a handler with security headers applied to every response.
@@ -37,7 +44,10 @@ func newServer(ctx context.Context, cfg Config, refresh bool) http.Handler {
 		tiles: newTileStore(cfg.TileDir, cfg.TileWorkers),
 		web:   handleSPA(resolveWeb(cfg)),
 		ac:    newAircraftCache(cfg),
-		oc:    newOceanCache(),
+		oc:    newETagCache(),
+		bc:    newBuoysCache(),
+		wrc:   newETagCache(),
+		wfc:   newETagCache(),
 	}
 
 	mux := http.NewServeMux()
@@ -49,12 +59,14 @@ func newServer(ctx context.Context, cfg Config, refresh bool) http.Handler {
 	mux.HandleFunc("/api/ocean/currents", s.handleOcean)
 	mux.HandleFunc("/api/ocean/buoys", s.handleOcean)
 	mux.HandleFunc("/api/aircraft", s.handleAircraft)
+	mux.HandleFunc("/api/weather/", s.handleWeather)
 	mux.HandleFunc("/healthz", handleHealthz)
 	mux.HandleFunc("/readyz", s.handleReadyz)
 	mux.Handle("/", s.web)
 
 	if refresh {
 		s.startOceanRefresh(ctx)
+		s.startWeatherRefresh(ctx)
 	}
 
 	return securityHeaders(withAccessLog(mux), cfg.CORSOrigin)

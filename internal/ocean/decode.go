@@ -93,6 +93,7 @@ func DecodeBuoys(r io.Reader) (Buoys, error) {
 			return Buoys{}, fmt.Errorf("ocean: buoys: station %s obsTime %w", s.ID, err)
 		}
 		b.Stations[i].ObsTime = obs
+		b.Stations[i].Kind = NormalizeKind(s.Kind)
 	}
 	return b, nil
 }

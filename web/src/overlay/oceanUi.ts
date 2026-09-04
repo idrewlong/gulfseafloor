@@ -1,6 +1,7 @@
 import type { VelocityStack } from './currentsField.ts';
 import { bracket, isStale } from './currentsTime.ts';
 import { msToKnots } from './windBarb.ts';
+import { kindLabel, stationKind, type StationKind } from './stationGlyph.ts';
 
 export const BUOY_RANK = 10;
 
@@ -73,9 +74,71 @@ export function currentsCaption(stack: VelocityStack | null, nowMs: number): str
   return caption;
 }
 
-export function buoyReadout(st: {
+/**
+ * How long ago a station last reported, relative to nowMs. Null when the
+ * station carries no obs time at all.
+ */
+export function obsAgeMs(obsTime: string | undefined, nowMs: number): number | null {
+  if (!obsTime) {
+    return null;
+  }
+  const t = Date.parse(obsTime);
+  if (!Number.isFinite(t)) {
+    return null;
+  }
+  // A clock skewed a little the wrong way must not read as a negative age.
+  return Math.max(0, nowMs - t);
+}
+
+export type Freshness = 'fresh' | 'aging' | 'stale' | 'unknown';
+
+export const AGING_AFTER_MS = 60 * 60 * 1000;
+export const STALE_AFTER_MS = 6 * 60 * 60 * 1000;
+
+/**
+ * NDBC leaves a dead station in the table indefinitely: this AOI has carried
+ * stations whose last report was six weeks old, drawn identically to one
+ * from twenty minutes ago. Grading the age is what keeps the map from
+ * presenting an abandoned instrument as a live observation.
+ */
+export function freshnessOf(ageMs: number | null): Freshness {
+  if (ageMs == null) {
+    return 'unknown';
+  }
+  if (ageMs < AGING_AFTER_MS) {
+    return 'fresh';
+  }
+  if (ageMs < STALE_AFTER_MS) {
+    return 'aging';
+  }
+  return 'stale';
+}
+
+/** Coarse, human age: "22 min", "9 h", "41 d". */
+export function formatAge(ageMs: number | null): string {
+  if (ageMs == null) {
+    return 'no obs time';
+  }
+  // Sub-minute must test the raw age, not the rounded minutes: 30 s rounds
+  // up to 1 and would never reach a "< 1 min" branch.
+  if (ageMs < 60000) {
+    return 'just now';
+  }
+  const min = Math.round(ageMs / 60000);
+  if (min < 60) {
+    return `${min} min`;
+  }
+  const hours = Math.round(min / 60);
+  if (hours < 48) {
+    return `${hours} h`;
+  }
+  return `${Math.round(hours / 24)} d`;
+}
+
+export type StationLike = {
   id: string;
   name?: string;
+  kind?: string;
   lon: number;
   lat: number;
   wdir?: number;
@@ -84,25 +147,59 @@ export function buoyReadout(st: {
   wvht?: number;
   wtmp?: number;
   obsTime?: string;
-}): string {
+};
+
+export type ReadoutRow = { label: string; value: string };
+
+/**
+ * The station's measurements as label/value rows. The inspector panel and the
+ * screen-reader label are built from this one list so the two can never drift
+ * into describing the same station differently.
+ */
+export function stationRows(st: StationLike, nowMs: number): ReadoutRow[] {
+  const rows: ReadoutRow[] = [];
+  if (st.wdir != null && st.wspd != null) {
+    rows.push({ label: 'Wind', value: `${Math.round(st.wdir)}\u00b0 / ${msToKnots(st.wspd).toFixed(1)} kt` });
+  } else if (st.wspd != null) {
+    rows.push({ label: 'Wind', value: `${msToKnots(st.wspd).toFixed(1)} kt` });
+  }
+  if (st.gst != null) {
+    rows.push({ label: 'Gust', value: `${msToKnots(st.gst).toFixed(1)} kt` });
+  }
+  if (st.wvht != null) {
+    rows.push({ label: 'Wave', value: `${st.wvht.toFixed(1)} m` });
+  }
+  if (st.wtmp != null) {
+    rows.push({ label: 'Water', value: `${st.wtmp.toFixed(1)} \u00b0C` });
+  }
+  const age = obsAgeMs(st.obsTime, nowMs);
+  // "no obs time ago" is nonsense, so the null case supplies its own phrase.
+  rows.push({ label: 'Observed', value: age == null ? 'no obs time' : `${formatAge(age)} ago` });
+  return rows;
+}
+
+/** The platform class label for a station payload. */
+export function stationKindLabel(st: StationLike): string {
+  return kindLabel(stationKind(st.kind));
+}
+
+export function stationKindOf(st: StationLike): StationKind {
+  return stationKind(st.kind);
+}
+
+/**
+ * Flat text form, used for the mark's aria-label. Ages are spelled out
+ * rather than left as a bare ISO stamp: "8 d ago" is the fact that matters,
+ * and it is the one a screen-reader user would otherwise have to compute.
+ */
+export function buoyReadout(st: StationLike, nowMs: number = Date.now()): string {
   const lines: string[] = [st.id];
   if (st.name) {
     lines.push(st.name);
   }
-  if (st.wdir != null && st.wspd != null) {
-    lines.push(`${st.wdir}° / ${msToKnots(st.wspd).toFixed(1)} kt`);
-  }
-  if (st.gst != null) {
-    lines.push(`Gust ${msToKnots(st.gst).toFixed(1)} kt`);
-  }
-  if (st.wvht != null) {
-    lines.push(`Wave ${st.wvht.toFixed(1)} m`);
-  }
-  if (st.wtmp != null) {
-    lines.push(`Water ${st.wtmp.toFixed(1)} °C`);
-  }
-  if (st.obsTime) {
-    lines.push(st.obsTime);
+  lines.push(stationKindLabel(st));
+  for (const row of stationRows(st, nowMs)) {
+    lines.push(`${row.label} ${row.value}`);
   }
   return lines.join('\n');
 }

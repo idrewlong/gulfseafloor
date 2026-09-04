@@ -3,6 +3,7 @@ package aircraft
 import (
 	"context"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,9 +14,28 @@ import (
 )
 
 func TestCoverRadiusCoversAOI(t *testing.T) {
+	// Assert the contract — a disc at the AOI centre that reaches every corner
+	// — rather than a literal. The old literal (~90 nmi) was really a fact
+	// about how wide the chart happened to be, so widening it to 16:9 failed a
+	// test that the function had answered correctly.
 	r := CoverRadiusNmi(tiles.AOI)
-	if r < 80 || r > 120 {
-		t.Fatalf("radius %v nmi, expected ~90", r)
+	midLat := (tiles.AOI.South + tiles.AOI.North) / 2
+	midLon := (tiles.AOI.West + tiles.AOI.East) / 2
+	for _, c := range [][2]float64{
+		{tiles.AOI.West, tiles.AOI.South},
+		{tiles.AOI.West, tiles.AOI.North},
+		{tiles.AOI.East, tiles.AOI.South},
+		{tiles.AOI.East, tiles.AOI.North},
+	} {
+		dLat := (c[1] - midLat) * 60
+		dLon := (c[0] - midLon) * 60 * math.Cos(midLat*math.Pi/180)
+		if got := math.Hypot(dLon, dLat); got > r {
+			t.Errorf("corner (%.2f, %.2f) is %.0f nmi out, radius only %.0f", c[0], c[1], got, r)
+		}
+	}
+	// adsb.lol caps a point query at 250 nmi, so the chart must stay inside it.
+	if r > 250 {
+		t.Fatalf("radius %v nmi exceeds the adsb.lol ceiling", r)
 	}
 }
 

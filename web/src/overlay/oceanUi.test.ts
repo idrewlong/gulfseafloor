@@ -1,13 +1,19 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
+  AGING_AFTER_MS,
   BUOY_RANK,
+  STALE_AFTER_MS,
   availabilityFromHttp,
   buoyReadout,
   currentsCaption,
   defaultOn,
+  formatAge,
   formatValidZ,
+  freshnessOf,
+  obsAgeMs,
   oceanCaption,
+  stationRows,
   unavailableOceanResponse,
 } from './oceanUi.ts';
 import type { VelocityStack } from './currentsField.ts';
@@ -117,33 +123,101 @@ describe('currentsCaption', () => {
 });
 
 describe('buoyReadout', () => {
+  // Pinned so the reported age is deterministic rather than clock-dependent.
+  const now = Date.parse('2026-08-24T20:12:00Z');
+
   it('formats wind in knots to one decimal and omits missing lines', () => {
-    const full = buoyReadout({
-      id: 'WYCM6',
-      name: 'Gulfport Harbor',
-      lon: -89.081,
-      lat: 30.36,
-      wdir: 180,
-      wspd: 6.2,
-      gst: 8.1,
-      wvht: 0.4,
-      wtmp: 29.1,
-      obsTime: '2026-08-24T19:50:00Z',
-    });
+    const full = buoyReadout(
+      {
+        id: 'WYCM6',
+        name: 'Gulfport Harbor',
+        kind: 'fixed',
+        lon: -89.081,
+        lat: 30.36,
+        wdir: 180,
+        wspd: 6.2,
+        gst: 8.1,
+        wvht: 0.4,
+        wtmp: 29.1,
+        obsTime: '2026-08-24T19:50:00Z',
+      },
+      now,
+    );
     assert.equal(
       full,
       [
         'WYCM6',
         'Gulfport Harbor',
-        '180° / 12.1 kt',
+        'Fixed station',
+        'Wind 180\u00b0 / 12.1 kt',
         'Gust 15.7 kt',
         'Wave 0.4 m',
-        'Water 29.1 °C',
-        '2026-08-24T19:50:00Z',
+        'Water 29.1 \u00b0C',
+        // Spelled out rather than left as a raw ISO stamp: the age is the
+        // fact a reader needs, and it is the one they would have to compute.
+        'Observed 22 min ago',
       ].join('\n'),
     );
 
-    const sparse = buoyReadout({ id: 'WYCM6', lon: -89.081, lat: 30.36 });
-    assert.equal(sparse, 'WYCM6');
+    const sparse = buoyReadout({ id: 'WYCM6', lon: -89.081, lat: 30.36 }, now);
+    assert.equal(sparse, ['WYCM6', 'Station', 'Observed no obs time'].join('\n'));
+  });
+});
+
+describe('obsAgeMs', () => {
+  const now = Date.parse('2026-09-03T21:00:00Z');
+
+  it('is null without an obs time, and never negative', () => {
+    assert.equal(obsAgeMs(undefined, now), null);
+    assert.equal(obsAgeMs('not a date', now), null);
+    // A station timestamped slightly ahead of a skewed client clock must
+    // read as brand new, not as a negative age.
+    assert.equal(obsAgeMs('2026-09-03T21:05:00Z', now), 0);
+  });
+
+  it('measures elapsed time from the obs stamp', () => {
+    assert.equal(obsAgeMs('2026-09-03T20:30:00Z', now), 30 * 60 * 1000);
+  });
+});
+
+describe('freshnessOf', () => {
+  it('grades on the hour and six-hour boundaries', () => {
+    assert.equal(freshnessOf(null), 'unknown');
+    assert.equal(freshnessOf(0), 'fresh');
+    assert.equal(freshnessOf(AGING_AFTER_MS - 1), 'fresh');
+    assert.equal(freshnessOf(AGING_AFTER_MS), 'aging');
+    assert.equal(freshnessOf(STALE_AFTER_MS - 1), 'aging');
+    assert.equal(freshnessOf(STALE_AFTER_MS), 'stale');
+  });
+
+  it('calls a six-week-old observation stale', () => {
+    // The real case this exists for: station 42067 sat in the AOI snapshot
+    // reporting a July timestamp while the map drew it like a live station.
+    assert.equal(freshnessOf(42 * 24 * 60 * 60 * 1000), 'stale');
+  });
+});
+
+describe('formatAge', () => {
+  it('scales the unit to the age', () => {
+    assert.equal(formatAge(null), 'no obs time');
+    assert.equal(formatAge(30 * 1000), 'just now');
+    assert.equal(formatAge(22 * 60 * 1000), '22 min');
+    assert.equal(formatAge(9 * 60 * 60 * 1000), '9 h');
+    assert.equal(formatAge(8 * 24 * 60 * 60 * 1000), '8 d');
+  });
+});
+
+describe('stationRows', () => {
+  const now = Date.parse('2026-09-03T21:00:00Z');
+
+  it('omits fields the station did not report but always states the age', () => {
+    const rows = stationRows(
+      { id: 'OSTF1', lon: -89.6, lat: 30.3, wtmp: 30.4, obsTime: '2026-09-03T20:38:00Z' },
+      now,
+    );
+    assert.deepEqual(rows, [
+      { label: 'Water', value: '30.4 \u00b0C' },
+      { label: 'Observed', value: '22 min ago' },
+    ]);
   });
 });

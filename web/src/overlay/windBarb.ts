@@ -38,11 +38,16 @@ function fmt(n: number): string {
  * SVG inner markup for a 0 0 40 40 viewBox. Staff points into the wind
  * (meteorological from). Northern-hemisphere barbs sit on the left of
  * the staff when heading along `wdirFromDeg`.
+ *
+ * `inset` holds the staff's foot that many units off centre, so a platform
+ * glyph drawn at the station position is not struck through by its own
+ * barb. Calm is drawn as a ring at the same clearance — the standard station
+ * annotation, and it encircles the glyph rather than hiding it.
  */
-export function barbSvg(wdirFromDeg: number, wspdMs: number): string {
+export function barbSvg(wdirFromDeg: number, wspdMs: number, inset = 0): string {
   const counts = barbCounts(msToKnots(wspdMs));
   if (counts.calm) {
-    return `<circle cx="${CX}" cy="${CY}" r="4" ${ATTR}/>`;
+    return `<circle cx="${CX}" cy="${CY}" r="${fmt(Math.max(4, inset + 2.4))}" fill="none" ${ATTR}/>`;
   }
 
   const rad = (wdirFromDeg * Math.PI) / 180;
@@ -51,9 +56,11 @@ export function barbSvg(wdirFromDeg: number, wspdMs: number): string {
   const lx = hy;
   const ly = -hx;
 
-  const tipX = CX + hx * STAFF_LEN;
-  const tipY = CY + hy * STAFF_LEN;
-  const parts: string[] = [`M ${fmt(CX)} ${fmt(CY)} L ${fmt(tipX)} ${fmt(tipY)}`];
+  const footX = CX + hx * inset;
+  const footY = CY + hy * inset;
+  const tipX = CX + hx * (STAFF_LEN + inset);
+  const tipY = CY + hy * (STAFF_LEN + inset);
+  const parts: string[] = [`M ${fmt(footX)} ${fmt(footY)} L ${fmt(tipX)} ${fmt(tipY)}`];
 
   const point = (along: number): { x: number; y: number } => ({
     x: tipX - hx * along,

@@ -10,8 +10,10 @@ import {
   aircraftPollIntervalMs,
   aircraftReadout,
   deadReckon,
+  deadReckonInto,
   shouldPollAircraft,
   shouldReprobeAircraft,
+  type Aircraft,
 } from './aircraftUi.ts';
 
 describe('aircraftAvailable', () => {
@@ -168,5 +170,54 @@ describe('aircraftPollIntervalMs', () => {
     assert.equal(AIRCRAFT_REPROBE_MS, 60_000);
     assert.equal(aircraftPollIntervalMs(true), 10_000);
     assert.equal(aircraftPollIntervalMs(false), 60_000);
+  });
+});
+
+// deadReckonInto is what the render loop actually calls, once per aircraft
+// per frame. It must agree with deadReckon exactly — the only difference is
+// that it writes into a caller-owned object instead of allocating one.
+describe('deadReckonInto', () => {
+  const cases: { name: string; a: Aircraft; dt: number }[] = [
+    {
+      name: 'an airborne track',
+      a: { hex: 'a1', lon: -89, lat: 30, onGround: false, trackDeg: 90, gsMps: 200 },
+      dt: 4,
+    },
+    {
+      name: 'an aircraft on the ground',
+      a: { hex: 'a2', lon: -89, lat: 30, onGround: true, trackDeg: 90, gsMps: 200 },
+      dt: 4,
+    },
+    {
+      name: 'a report with no track',
+      a: { hex: 'a3', lon: -89, lat: 30, onGround: false, gsMps: 200 },
+      dt: 4,
+    },
+    {
+      name: 'a zero time step',
+      a: { hex: 'a4', lon: -89, lat: 30, onGround: false, trackDeg: 270, gsMps: 200 },
+      dt: 0,
+    },
+    {
+      name: 'a step past the dead-reckoning ceiling',
+      a: { hex: 'a5', lon: -89, lat: 30, onGround: false, trackDeg: 180, gsMps: 200 },
+      dt: 10_000,
+    },
+  ];
+
+  for (const c of cases) {
+    it(`matches deadReckon for ${c.name}`, () => {
+      const out = { lon: 0, lat: 0 };
+      deadReckonInto(c.a, c.dt, out);
+      assert.deepEqual(out, deadReckon(c.a, c.dt));
+    });
+  }
+
+  it('overwrites whatever the caller left in the scratch object', () => {
+    const out = { lon: 999, lat: -999 };
+    const a: Aircraft = { hex: 'b1', lon: -89, lat: 30, onGround: true };
+    deadReckonInto(a, 5, out);
+    assert.equal(out.lon, -89);
+    assert.equal(out.lat, 30);
   });
 });

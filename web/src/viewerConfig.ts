@@ -1,11 +1,18 @@
 export const DEFAULT_EXAGGERATION = 1;
 
 /**
- * Hypsometric window. GEBCO bottoms out at −81 m inside the AOI, at the
- * southeast corner where the Bight opens toward DeSoto Canyon; inland
- * pine-coast caps at +12 m.
+ * Hypsometric window. The chart used to stop at the Bight's −81 m floor, so
+ * −80 covered it. Extending south past Southwest Pass to the shelf break put
+ * the head of Mississippi Canyon inside the AOI and dropped the real floor to
+ * −2505 m: a fifth of the chart now lies deeper than the old window's end.
+ *
+ * The window is the full range rather than the old −80. That is a deliberate
+ * trade, not an oversight — it buys relief in the canyon at the cost of
+ * compressing the Sound and the delta into the top few percent of the ramp,
+ * where `absorb` in lut.ts and terrain.frag.glsl has already saturated.
+ * Shallow water reads mostly through the scatter term's 1–8 m smoothstep.
  */
-export const DEFAULT_DEPTH_MIN = -80;
+export const DEFAULT_DEPTH_MIN = -2500;
 export const DEFAULT_DEPTH_MAX = 12;
 
 /** Kept as documentation of the old drop; skirt fragments are discarded, not shaded. */

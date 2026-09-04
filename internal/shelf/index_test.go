@@ -22,6 +22,10 @@ func TestRingIndexMatchesLinearScan(t *testing.T) {
 }
 
 func TestSegIndexMatchesLinearScan(t *testing.T) {
+	// This checks the search itself, so it runs uncapped. The capped result is
+	// covered by TestShoreCapDoesNotChangeTheSurface and TestShoreCapReports.
+	defer liftShoreCap()()
+
 	coast := data().Coast
 	idx := newSegIndex([][][]float64{coast})
 	rng := rand.New(rand.NewSource(11))
@@ -38,6 +42,8 @@ func TestSegIndexMatchesLinearScan(t *testing.T) {
 }
 
 func TestSegIndexHandlesPointsFarOutsideTheGrid(t *testing.T) {
+	defer liftShoreCap()()
+
 	line := [][]float64{{-89.0, 30.3}, {-88.9, 30.3}}
 	idx := newSegIndex([][][]float64{line})
 	got := idx.nearest(-80.0, 20.0)

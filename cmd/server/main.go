@@ -34,17 +34,23 @@ func main() {
 
 	addr := env("GULF_ADDR", ":8080")
 	cfg := server.Config{
-		TileDir:             env("GULF_TILE_DIR", "data/tiles"),
-		WebDir:              env("GULF_WEB_DIR", "web/dist"),
-		Embed:               webFS,
-		CORSOrigin:          os.Getenv("GULF_CORS_ORIGIN"),
-		TileWorkers:         envInt("GULF_TILE_WORKERS", 0),
-		OceanDir:            env("GULF_OCEAN_DIR", "data/ocean"),
-		AircraftEnabled:     os.Getenv("GULF_AIRCRAFT") != "0",
-		OpenSkyURL:          os.Getenv("GULF_OPENSKY_URL"),
-		AdsbLolURL:          os.Getenv("GULF_ADSBLOL_URL"),
-		OceanRefreshEnabled: os.Getenv("GULF_OCEAN_REFRESH") != "0",
-		HYCOMURL:            os.Getenv("GULF_HYCOM_URL"),
+		TileDir:               env("GULF_TILE_DIR", "data/tiles"),
+		WebDir:                env("GULF_WEB_DIR", "web/dist"),
+		Embed:                 webFS,
+		CORSOrigin:            os.Getenv("GULF_CORS_ORIGIN"),
+		TileWorkers:           envInt("GULF_TILE_WORKERS", 0),
+		OceanDir:              env("GULF_OCEAN_DIR", "data/ocean"),
+		AircraftEnabled:       os.Getenv("GULF_AIRCRAFT") != "0",
+		OpenSkyURL:            os.Getenv("GULF_OPENSKY_URL"),
+		AdsbLolURL:            os.Getenv("GULF_ADSBLOL_URL"),
+		OceanRefreshEnabled:   os.Getenv("GULF_OCEAN_REFRESH") != "0",
+		WeatherDir:            env("GULF_WEATHER_DIR", "data/weather"),
+		WeatherRefreshEnabled: os.Getenv("GULF_WEATHER_REFRESH") != "0",
+		RadarRefreshEvery:     envDuration("GULF_RADAR_REFRESH_EVERY", 0),
+		ForecastRefreshEvery:  envDuration("GULF_FORECAST_REFRESH_EVERY", 0),
+		HYCOMURL:              os.Getenv("GULF_HYCOM_URL"),
+		NDBCBase:              os.Getenv("GULF_NDBC_BASE"),
+		BuoyRefreshEvery:      envDuration("GULF_BUOY_REFRESH_EVERY", 0),
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -101,6 +107,20 @@ func setupLog() {
 func env(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
+	}
+	return fallback
+}
+
+// envDuration parses a Go duration string ("10m", "45s"). An unparseable
+// value falls back rather than failing startup: a typo in one tuning knob
+// must not keep the viewer from booting.
+func envDuration(key string, fallback time.Duration) time.Duration {
+	if v := os.Getenv(key); v != "" {
+		d, err := time.ParseDuration(v)
+		if err == nil {
+			return d
+		}
+		slog.Warn("ignoring unparseable duration", "key", key, "value", v)
 	}
 	return fallback
 }

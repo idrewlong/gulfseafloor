@@ -1,21 +1,44 @@
 package shelf
 
-import "math"
+import (
+	"math"
 
-// The outlines carry ~9k coastline vertices, and the tiler samples every pixel
-// of every tile in the pyramid. Linear scans over the rings are far too slow at
-// that scale, so both queries the sampler needs — "is this point inside a ring"
-// and "how far is the nearest shore" — go through an index.
+	"github.com/idrewlong/gulfseafloor/internal/tiles"
+)
+
+// The outlines carry about 110k vertices across the coast, the mainland ring,
+// the islands and the bays, and the tiler samples every pixel of every tile in
+// the pyramid. Linear scans over the rings are far too slow at that scale, so
+// both queries the sampler needs — "is this point inside a ring" and "how far
+// is the nearest shore" — go through an index.
 
 const (
 	mPerDegLat = 111_320.0
-	// Reference latitude for the local equirectangular projection. The AOI is
-	// about 1.3° tall; a single scale factor is inside the error already
-	// accepted by a synthetic heightfield.
-	projRefLat = 30.14
+
+	// maxUsefulShoreDist caps the nearest-shore search. Every consumer of that
+	// distance saturates well before this: the deepest ramps are
+	// smoothstep(0, 9_000, shore) for the Sound floor and
+	// smoothstep(400, 9_000, inland) for the pine ridge, so anything past 9 km
+	// lands on an identical surface. Beyond the cap nearest() reports +Inf,
+	// which smoothstep clamps to the same 1.
+	//
+	// Without it the expanding ring search walked out to the true distance —
+	// 90 km or more once the chart reached open Gulf — and burned 80x the time
+	// of a nearshore sample to produce a number that was then clamped away.
+	maxUsefulShoreDist = 12_000.0
 )
 
+// Reference latitude for the local equirectangular projection, taken from the
+// chart centre. It was pinned at 30.14 with a note that the AOI was "about
+// 1.3° tall"; the chart is now 2.28° tall and neither the constant nor the
+// note had followed it.
+var projRefLat = (tiles.AOI.South + tiles.AOI.North) / 2
+
 var mPerDegLon = mPerDegLat * math.Cos(projRefLat*math.Pi/180)
+
+// shoreSearchCap is maxUsefulShoreDist in normal use. Tests raise it to prove
+// the cap does not change the surface.
+var shoreSearchCap = maxUsefulShoreDist
 
 func project(lon, lat float64) (x, y float64) {
 	return lon * mPerDegLon, lat * mPerDegLat
@@ -250,6 +273,11 @@ func (s *segIndex) nearest(lon, lat float64) float64 {
 		// Every bucket in ring r+1 lies at least r cells away, so once that
 		// bound exceeds the best hit no further ring can improve it.
 		if !math.IsInf(best, 1) && float64(r-1)*s.cell > best {
+			break
+		}
+		// Nothing past the cap can change the surface, so stop walking rings
+		// of empty water looking for a shore that is about to be clamped off.
+		if float64(r-1)*s.cell > shoreSearchCap {
 			break
 		}
 		for gy := cy - r; gy <= cy+r; gy++ {

@@ -39,30 +39,51 @@ func FetchSnapshot(ctx context.Context, client *http.Client, ep Endpoints, aoi B
 		return err
 	}
 
-	tableBody, status, err := getCapped(ctx, client, ep.StationTable, stationTableLimit, false)
-	if err != nil {
-		return fmt.Errorf("ocean: fetch station table: %w", err)
-	}
-	if status != http.StatusOK {
-		return fmt.Errorf("ocean: fetch station table: HTTP %d", status)
-	}
-	rows, err := ParseStationTable(bytes.NewReader(tableBody), Expand(aoi, StationMarginDeg))
+	buoys, err := FetchBuoys(ctx, client, ep, aoi, retrieved)
 	if err != nil {
 		return err
-	}
-
-	stations, err := fetchStations(ctx, client, ep, rows)
-	if err != nil {
-		return err
-	}
-	buoys := Buoys{
-		ValidTime: BuoysValidTime(stations, retrieved),
-		Source:    Source{Name: "NDBC", URL: ep.StationTable},
-		Stations:  stations,
 	}
 	// A one-shot make-ocean ingest fetches currents and buoys in the same
 	// pass, so both layers were genuinely retrieved at this instant.
 	return WriteSnapshot(outDir, currents, buoys, true, retrieved, &retrieved)
+}
+
+// FetchBuoys downloads the NDBC station table, keeps the stations inside aoi,
+// and pulls each one's realtime2 observation. A station whose realtime2 file
+// is missing or unparseable is skipped; only a station-table failure is
+// fatal, since without the table there is no station list to speak of.
+//
+// retrieved is the fallback ValidTime for a snapshot in which no station
+// reported an obs time at all.
+//
+// This is the half of FetchSnapshot that the server's background refresher
+// reuses, so the scheduled poll and the one-shot `make ocean` ingest cannot
+// drift apart in which stations they select or how they parse them.
+func FetchBuoys(ctx context.Context, client *http.Client, ep Endpoints, aoi BBox, retrieved time.Time) (Buoys, error) {
+	if client == nil {
+		client = http.DefaultClient
+	}
+	tableBody, status, err := getCapped(ctx, client, ep.StationTable, stationTableLimit, false)
+	if err != nil {
+		return Buoys{}, fmt.Errorf("ocean: fetch station table: %w", err)
+	}
+	if status != http.StatusOK {
+		return Buoys{}, fmt.Errorf("ocean: fetch station table: HTTP %d", status)
+	}
+	rows, err := ParseStationTable(bytes.NewReader(tableBody), Expand(aoi, StationMarginDeg))
+	if err != nil {
+		return Buoys{}, err
+	}
+
+	stations, err := fetchStations(ctx, client, ep, rows)
+	if err != nil {
+		return Buoys{}, err
+	}
+	return Buoys{
+		ValidTime: BuoysValidTime(stations, retrieved),
+		Source:    Source{Name: "NDBC", URL: ep.StationTable},
+		Stations:  stations,
+	}, nil
 }
 
 func fetchStations(ctx context.Context, client *http.Client, ep Endpoints, rows []TableRow) ([]Station, error) {
@@ -99,6 +120,7 @@ func fetchStations(ctx context.Context, client *http.Client, ep Endpoints, rows 
 				return
 			}
 			st.Name = row.Name
+			st.Kind = row.Kind
 			st.Lon = row.Lon
 			st.Lat = row.Lat
 			mu.Lock()
@@ -149,4 +171,22 @@ func hycomDatasetFromURL(raw string) string {
 		}
 	}
 	return ""
+}
+
+// DefaultNDBCBase is the NDBC site origin.
+const DefaultNDBCBase = "https://www.ndbc.noaa.gov"
+
+// NDBCEndpoints derives the station-table and realtime2 URLs from a site
+// origin. The one-shot ingest and the server's background refresher both
+// build their endpoints here so the two cannot drift onto different paths.
+// HYCOM is left empty; FetchBuoys does not read it.
+func NDBCEndpoints(base string) Endpoints {
+	if strings.TrimSpace(base) == "" {
+		base = DefaultNDBCBase
+	}
+	base = strings.TrimRight(strings.TrimSpace(base), "/")
+	return Endpoints{
+		StationTable:    base + "/data/stations/station_table.txt",
+		Realtime2Prefix: base + "/data/realtime2/",
+	}
 }

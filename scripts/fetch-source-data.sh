@@ -14,11 +14,10 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DEST_DIR="${ROOT}/data/raw"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-# WGS84 AOI: New Orleans to Orange Beach, south to NDBC 42354.
-AOI_WEST="-90.20"
-AOI_SOUTH="29.50"
-AOI_EAST="-87.45"
-AOI_NORTH="30.78"
+# WGS84 AOI, read from internal/tiles.AOI rather than copied. This block used
+# to hold its own numbers and drifted two chart revisions behind.
+eval "$(cd "$ROOT" && go run ./cmd/tiler aoi)"
+: "${AOI_WEST:?tiler aoi did not report the AOI}"
 
 NBS_BUCKET="s3://noaa-ocs-nationalbathymetry-pds"
 REGION="${AWS_DEFAULT_REGION:-us-east-1}"

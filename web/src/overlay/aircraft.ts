@@ -8,6 +8,7 @@ import {
 import {
   AIRCRAFT_RANK,
   aircraftReadout,
+  aircraftRows,
   type Aircraft,
   type AircraftSnapshot,
 } from './aircraftUi.ts';
@@ -231,7 +232,18 @@ function syncAircraftReadout(marks: readonly EngagedAircraftMark[]): void {
     }
   }
   const engaged = hovered ?? focused;
-  setAircraftReadout(el, engaged ? aircraftReadout(engaged) : null);
+  setAircraftReadout(
+    el,
+    engaged
+      ? {
+          kicker: 'Aircraft',
+          title: engaged.callsign || engaged.icao24,
+          // The ICAO24 is the durable identity; a callsign can be reused.
+          ...(engaged.callsign ? { subtitle: engaged.icao24 } : {}),
+          rows: aircraftRows(engaged),
+        }
+      : null,
+  );
 }
 
 export function planAircraftMarkReuse(

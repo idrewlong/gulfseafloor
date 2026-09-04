@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestAOICoversNewOrleansToOrangeBeachAnd42354(t *testing.T) {
+func TestAOICoversTheBightAndTheBirdfoot(t *testing.T) {
 	points := []struct {
 		name     string
 		lon, lat float64
@@ -13,6 +13,23 @@ func TestAOICoversNewOrleansToOrangeBeachAnd42354(t *testing.T) {
 		{"CARL1 New Orleans", -90.135, 29.933},
 		{"PPTA1 Orange Beach / Perdido", -87.556, 30.279},
 		{"42354 Chandeleur SE", -88.643, 29.579},
+		// The delta and shelf-edge extension. Venice sits 0.22 degrees below
+		// the old south edge, which is what pulled the chart down here.
+		{"Venice, LA", -89.354, 29.277},
+		{"PILL1 Pilottown", -89.259, 29.179},
+		{"BURL1 Southwest Pass", -89.429, 28.906},
+		{"PTFL1 Port Fourchon", -90.199, 29.114},
+		{"LOPL1 Louisiana Offshore Oil Port", -90.025, 28.885},
+		{"KIKT Na Kika, Mississippi Canyon 474", -88.289, 28.521},
+		{"KVOA Petronius, Viosca Knoll 786", -87.781, 29.229},
+		// The 16:9 widening. A cover-fit camera crops the north-south extent on
+		// a widescreen viewport, so the box has to be this wide for the canyon
+		// to be on screen at load.
+		{"TESL1 Berwick, Atchafalaya", -91.237, 29.668},
+		{"AMRL1 Amerada Pass", -91.338, 29.450},
+		{"KSPR Ship Shoal 178", -91.206, 28.599},
+		{"PCLF1 Pensacola", -87.211, 30.404},
+		{"Navarre, FL", -86.862, 30.402},
 	}
 	for _, p := range points {
 		if !AOI.Contains(p.lon, p.lat) {

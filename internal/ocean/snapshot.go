@@ -12,21 +12,27 @@ import (
 var rename = os.Rename
 
 // EncodeManifest builds the snapshot inventory for currents and buoys.
-// currentsRetrieved is when THIS call fetched currents — always true, since
-// callers only reach here after a successful currents fetch. buoysPresent
-// and buoysRetrieved describe the buoys layer independently: a background
-// currents-only refresh may have no buoys data to report at all (buoysPresent
-// false), or may be write-through-ing a buoys snapshot it did not itself
-// fetch (buoysRetrieved carries that layer's own, possibly older, retrieval
-// time, or is nil if that time is unknown). This keeps the manifest from
-// ever claiming a re-fetch that did not happen.
+//
+// The two layers refresh on independent tickers, so neither timestamp may be
+// inferred from the other. currentsRetrieved is when the currents layer was
+// last actually fetched: this call's own fetch for a currents refresh, or the
+// time carried forward from the prior manifest when a buoys-only refresh is
+// writing a currents stack it did not fetch. buoysPresent and buoysRetrieved
+// describe the buoys layer the same way: a refresh may have no buoys data to
+// report at all (buoysPresent false), or may be write-through-ing a buoys
+// snapshot it did not itself fetch (buoysRetrieved carries that layer's own,
+// possibly older, retrieval time, or is nil if that time is unknown).
+//
+// The invariant in both directions: the manifest never claims a re-fetch
+// that did not happen.
 func EncodeManifest(c Currents, b Buoys, buoysPresent bool, currentsRetrieved time.Time, buoysRetrieved *time.Time) Manifest {
 	cv := c.ValidTime.UTC()
 	cr := currentsRetrieved.UTC()
 	m := Manifest{
 		// Legacy top-level field, kept for readers that predate per-layer
-		// RetrievedAt. It mirrors the currents layer, which is the layer
-		// every call to this function actually just retrieved.
+		// RetrievedAt. It mirrors the currents layer. Prefer the per-layer
+		// fields: since buoys refresh on their own ticker, this one value
+		// cannot describe both layers.
 		RetrievedAt: cr,
 		Currents: LayerInfo{
 			Present:     true,

@@ -33,8 +33,18 @@ func (s *Server) handleOcean(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	if name == "currents" {
-		if body, etag, ok := s.oc.get(); ok {
+	// Both live layers are served from memory when a cache is warm. The
+	// disk path below stays as the fallback for a cache that was never
+	// primed (no snapshot on disk yet).
+	var cached func() ([]byte, string, bool)
+	switch name {
+	case "currents":
+		cached = s.oc.get
+	case "buoys":
+		cached = s.bc.get
+	}
+	if cached != nil {
+		if body, etag, ok := cached(); ok {
 			w.Header().Set("Content-Type", "application/json")
 			w.Header().Set("Cache-Control", oceanCacheControl)
 			w.Header().Set("ETag", etag)

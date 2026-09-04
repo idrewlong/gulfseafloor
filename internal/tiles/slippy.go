@@ -6,12 +6,18 @@ import (
 	"math"
 )
 
-// AOI is the Mississippi Bight chart, WGS84 — New Orleans to Orange Beach,
-// mainland to south of NDBC 42354 (Chandeleur Island SE).
+// AOI is the north-central Gulf chart, WGS84 — Atchafalaya Bay to Pensacola,
+// mainland south past Southwest Pass to the shelf break and the head of
+// Mississippi Canyon.
+//
+// The east-west span is not arbitrary: at 452 x 254 km the box is 1.78:1,
+// which matches a 16:9 viewport. The camera uses a cover fit, so a narrower
+// box would crop the north-south extent on a widescreen monitor and hide the
+// canyon on load.
 var AOI = BBox{
-	West:  -90.20,
-	South: 29.50,
-	East:  -87.45,
+	West:  -91.36,
+	South: 28.50,
+	East:  -86.69,
 	North: 30.78,
 }
 

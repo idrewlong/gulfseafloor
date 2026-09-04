@@ -325,7 +325,7 @@ func TestManifest(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&m); err != nil {
 		t.Fatal(err)
 	}
-	if len(m.Regions) != 1 || m.Regions[0].ID != "mississippi-sound" {
+	if len(m.Regions) != 1 || m.Regions[0].ID != "north-central-gulf" {
 		t.Fatalf("%+v", m)
 	}
 	// Depths are GEBCO-derived now, so the region must not advertise itself as

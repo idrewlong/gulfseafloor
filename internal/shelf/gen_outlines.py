@@ -191,6 +191,10 @@ def main() -> None:
     ship = simplify_rings(outer_rings(pick_feature(load("ship.json"))), EPS_ISLAND)
     dauphin = simplify_rings(outer_rings(pick_feature(load("dauphin.json"), skip_admin=True)), EPS_ISLAND)
     deer = simplify_rings(outer_rings(pick_feature(load("deer.json"))), EPS_ISLAND)
+    # Nominatim returns Grand Isle twice: the town polygon and a bare island
+    # point. The town covers the whole barrier island, so take the polygon.
+    grand_isle = simplify_rings(outer_rings(pick_feature(load("grandisle.json"))), EPS_ISLAND)
+    point_au_fer = simplify_rings(outer_rings(pick_feature(load("pointaufer.json"))), EPS_ISLAND)
     stlouis = simplify_rings(outer_rings(pick_feature(load("stlouis.json"))), EPS_BAY)
     mobile = simplify_rings(outer_rings(pick_feature(load("mobile.json"))), EPS_BAY)
     pontchartrain = simplify_rings(outer_rings(pick_feature(load("pontchartrain.json"))), EPS_BAY)
@@ -222,6 +226,8 @@ def main() -> None:
         "dauphin": dauphin[0],
         "deer": deer[0],
         "round": ROUND_ISLAND,
+        "grandIsle": grand_isle[0],
+        "pointAuFer": point_au_fer[0],
     }
     # Back Bay of Biloxi and the Pascagoula River mouth used to be hand-typed
     # boxes here, and they drowned Ocean Springs, D'Iberville and Pascagoula.

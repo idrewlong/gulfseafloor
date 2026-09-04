@@ -8,8 +8,21 @@ import (
 )
 
 func TestOutsideAOIIsNodata(t *testing.T) {
-	if elev := Sample(-87.0, 29.5); elev > terrain.MinMetres+1 {
-		t.Fatalf("outside AOI should be nodata, got %g", elev)
+	// Derived from the AOI rather than hard-coded: -87.0 used to sit outside
+	// the box and now sits inside it, which made this test assert the opposite
+	// of its name the moment the chart was widened to Pensacola.
+	for _, p := range []struct {
+		name     string
+		lon, lat float64
+	}{
+		{"east of the chart", tiles.AOI.East + 0.5, 29.5},
+		{"west of the chart", tiles.AOI.West - 0.5, 29.5},
+		{"south of the chart", -89.0, tiles.AOI.South - 0.5},
+		{"north of the chart", -89.0, tiles.AOI.North + 0.5},
+	} {
+		if elev := Sample(p.lon, p.lat); elev > terrain.MinMetres+1 {
+			t.Errorf("%s (%.2f, %.2f) should be nodata, got %g", p.name, p.lon, p.lat, elev)
+		}
 	}
 }
 

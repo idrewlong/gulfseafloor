@@ -35,8 +35,8 @@ type region struct {
 
 var mississippiSound = manifest{
 	Regions: []region{{
-		ID:       "mississippi-sound",
-		Name:     "Mississippi Bight",
+		ID:       "north-central-gulf",
+		Name:     "North-Central Gulf",
 		BBox:     []float64{tiles.AOI.West, tiles.AOI.South, tiles.AOI.East, tiles.AOI.North},
 		CRS:      "EPSG:4326",
 		MinZoom:  6,

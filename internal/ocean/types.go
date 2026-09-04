@@ -1,6 +1,9 @@
 package ocean
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 // BBox is a geographic bounding box in EPSG:4326 degrees.
 type BBox struct {
@@ -42,19 +45,83 @@ type Currents struct {
 	V []*float64 `json:"v,omitempty"`
 }
 
+// StationKind is the platform class NDBC records in station_table.txt's
+// ttype column. A moored float and a station bolted to a pier report the
+// same stdmet fields but are not the same instrument, and the viewer draws
+// them with different glyphs, so the class travels with the observation
+// rather than being guessed from the ID format.
+type StationKind string
+
+const (
+	KindBuoy  StationKind = "buoy"
+	KindFixed StationKind = "fixed"
+	KindRig   StationKind = "rig"
+	KindDart  StationKind = "dart"
+	KindOther StationKind = "other"
+)
+
+// StationKindFromTType classifies an NDBC ttype cell.
+//
+// TTYPE is free text, not an enum: the live station_table.txt carries about
+// sixty-five distinct spellings ("3-meter discus buoy", "Water Level
+// Observation Network", "C-MAN Station", "Oil Platform", "2.6 meter DART
+// buoy"). So this matches on keywords, and the order of the checks matters —
+// "2.6 meter DART buoy" and "STB - SAIC Tsunami Buoy" both contain "buoy",
+// and must be caught as DART first.
+//
+// Unrecognized and empty cells become KindOther rather than an error: NDBC
+// adds platform types without notice, and an unclassifiable one is still a
+// real station worth drawing.
+func StationKindFromTType(ttype string) StationKind {
+	t := strings.ToLower(strings.TrimSpace(ttype))
+	if t == "" {
+		return KindOther
+	}
+	switch {
+	case strings.Contains(t, "dart"), strings.Contains(t, "tsunami"):
+		return KindDart
+	case strings.Contains(t, "platform"), strings.Contains(t, "oil"):
+		return KindRig
+	// Lightships float and are moored, so they read as buoys under the
+	// hollow-means-it-floats rule the glyphs follow.
+	case strings.Contains(t, "buoy"), strings.Contains(t, "lightship"):
+		return KindBuoy
+	case strings.Contains(t, "station"),
+		strings.Contains(t, "tower"),
+		strings.Contains(t, "network"),
+		strings.Contains(t, "c-man"):
+		return KindFixed
+	default:
+		return KindOther
+	}
+}
+
+// NormalizeKind resolves an absent or unrecognized kind to KindOther. A
+// buoys.json written before this field existed carries no kind at all, and
+// decoding one must still yield a value the viewer can pick a glyph from.
+func NormalizeKind(k StationKind) StationKind {
+	switch k {
+	case KindBuoy, KindFixed, KindRig, KindDart:
+		return k
+	default:
+		return KindOther
+	}
+}
+
 // Station is one NDBC observation. Optional numeric fields are omitted or null
 // when the station did not report them.
 type Station struct {
-	ID      string     `json:"id"`
-	Name    string     `json:"name"`
-	Lon     float64    `json:"lon"`
-	Lat     float64    `json:"lat"`
-	ObsTime *time.Time `json:"obsTime"`
-	WDir    *float64   `json:"wdir"`
-	WSpd    *float64   `json:"wspd"`
-	Gst     *float64   `json:"gst"`
-	WVHT    *float64   `json:"wvht"`
-	WTMP    *float64   `json:"wtmp"`
+	ID      string      `json:"id"`
+	Name    string      `json:"name"`
+	Kind    StationKind `json:"kind"`
+	Lon     float64     `json:"lon"`
+	Lat     float64     `json:"lat"`
+	ObsTime *time.Time  `json:"obsTime"`
+	WDir    *float64    `json:"wdir"`
+	WSpd    *float64    `json:"wspd"`
+	Gst     *float64    `json:"gst"`
+	WVHT    *float64    `json:"wvht"`
+	WTMP    *float64    `json:"wtmp"`
 }
 
 // Buoys is a snapshot of NDBC stations.

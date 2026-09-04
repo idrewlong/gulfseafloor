@@ -23,8 +23,11 @@ import argparse
 import datetime as dt
 import io
 import json
+import ssl
 import struct
 import sys
+import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -36,7 +39,9 @@ OUT_DIR = HERE.parent / "internal/shelf"
 
 # internal/tiles.AOI, plus room for the shelf sampler's own pad so bilinear
 # interpolation at the AOI edge still has four real corners.
-AOI_WEST, AOI_SOUTH, AOI_EAST, AOI_NORTH = -90.20, 29.50, -87.45, 30.78
+# Defaults mirror internal/tiles.AOI. `make gebco` overrides them with
+# `tiler aoi` so the clip cannot silently lag the chart.
+AOI_WEST, AOI_SOUTH, AOI_EAST, AOI_NORTH = -91.36, 28.50, -86.69, 30.78
 PAD = 0.08
 
 # GEBCO is a 15 arc-second, pixel-centre-registered global grid.
@@ -44,6 +49,9 @@ RES = 1.0 / 240.0
 NLON, NLAT = 86400, 43200
 
 TIMEOUT = 120
+# Transient-failure policy for the ~600 range requests one clip costs.
+RETRIES = 5
+BACKOFF = 2.0
 
 
 def grid_url(year: int) -> str:
@@ -76,10 +84,23 @@ class RangeReader(io.RawIOBase):
     def get_range(self, start: int, length: int) -> bytes:
         end = start + length - 1
         req = urllib.request.Request(self.url, headers={"Range": f"bytes={start}-{end}"})
-        with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
-            if r.status != 206:
-                raise SystemExit(f"expected 206 partial content, got {r.status}")
-            data = r.read()
+        # One clip is ~600 sequential requests over several minutes, and CEDA
+        # will drop or stall a connection somewhere in there. Without a retry a
+        # single TLS timeout throws away the whole run, so transient failures
+        # back off and try again; only a persistent one is fatal.
+        for attempt in range(RETRIES):
+            try:
+                with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
+                    if r.status != 206:
+                        raise SystemExit(f"expected 206 partial content, got {r.status}")
+                    data = r.read()
+                break
+            except (urllib.error.URLError, TimeoutError, ConnectionError, ssl.SSLError) as err:
+                if attempt == RETRIES - 1:
+                    raise SystemExit(f"range {start}-{end} failed after {RETRIES} tries: {err}")
+                wait = BACKOFF * 2**attempt
+                print(f"  retry {attempt + 1}/{RETRIES - 1} in {wait:.0f}s ({err})", file=sys.stderr)
+                time.sleep(wait)
         self.requests += 1
         if len(data) != length:
             raise SystemExit(f"short range read: asked {length}, got {len(data)}")
@@ -125,7 +146,20 @@ def cell_index(value: float, origin: float) -> float:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--year", type=int, default=2024, help="GEBCO release (default 2024)")
+    ap.add_argument(
+        "--bbox",
+        help="west,south,east,north; defaults to the built-in copy of tiles.AOI",
+    )
     args = ap.parse_args()
+    west, south, east, north = AOI_WEST, AOI_SOUTH, AOI_EAST, AOI_NORTH
+    if args.bbox:
+        try:
+            west, south, east, north = (float(v) for v in args.bbox.split(","))
+        except ValueError:
+            raise SystemExit(f"--bbox wants west,south,east,north; got {args.bbox!r}")
+        if not (west < east and south < north):
+            raise SystemExit(f"--bbox is not a box: {args.bbox!r}")
+    print(f"clipping to {west},{south},{east},{north}", file=sys.stderr)
 
     url = grid_url(args.year)
     print(f"source {url}", file=sys.stderr)
@@ -156,10 +190,10 @@ def main() -> int:
             raise SystemExit(f"{name} is {got}, expected pixel-centre {want}")
     print(f"registration ok: lat {lat0:.6f}..{lat1:.6f}, lon {lon0:.6f}..{lon1:.6f}", file=sys.stderr)
 
-    i0 = int(np.floor(cell_index(AOI_WEST - PAD, -180.0)))
-    i1 = int(np.ceil(cell_index(AOI_EAST + PAD, -180.0)))
-    j0 = int(np.floor(cell_index(AOI_SOUTH - PAD, -90.0)))
-    j1 = int(np.ceil(cell_index(AOI_NORTH + PAD, -90.0)))
+    i0 = int(np.floor(cell_index(west - PAD, -180.0)))
+    i1 = int(np.ceil(cell_index(east + PAD, -180.0)))
+    j0 = int(np.floor(cell_index(south - PAD, -90.0)))
+    j1 = int(np.ceil(cell_index(north + PAD, -90.0)))
     cols, rows = i1 - i0 + 1, j1 - j0 + 1
     print(f"clip {cols} x {rows} cells ({cols * rows * 2 / 1024:.0f} KB)", file=sys.stderr)
 

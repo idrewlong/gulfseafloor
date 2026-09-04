@@ -6,7 +6,7 @@
     <meta name="color-scheme" content="light" />
     <meta
       name="description"
-      content="GPU bathymetric terrain viewer for the Mississippi Sound. Turbid-water and sand shading with OSM island outlines. Not an official NOAA product."
+      content="GPU bathymetric terrain viewer for the north-central Gulf, Atchafalaya Bay to Pensacola. Turbid-water and sand shading with OSM island outlines. Not an official NOAA product."
     />
     <title>Gulf Seafloor Viewer</title>
   </head>
@@ -16,13 +16,13 @@
       <canvas
         id="terrain"
         tabindex="0"
-        aria-label="Bathymetric terrain of the Mississippi Sound. Drag to pan, scroll to zoom, right-drag to tilt, or use arrow keys."
+        aria-label="Bathymetric terrain of the north-central Gulf. Drag to pan, scroll to zoom, right-drag to tilt, or use arrow keys."
       ></canvas>
 
       <header class="chart-head">
         <div class="chart-head-text">
           <h1>Gulf Seafloor Viewer</h1>
-          <p id="region-line">Mississippi Sound · GEBCO 2024 (modified)</p>
+          <p id="region-line">North-Central Gulf · GEBCO 2024 (modified)</p>
         </div>
         <div class="chart-head-actions">
           <div class="nav-help" id="nav-help">
@@ -59,87 +59,97 @@
       </header>
 
       <aside id="legend" class="legend" aria-label="Hypsometric depth scale"></aside>
-      <aside id="currents-legend" class="legend legend-currents" aria-label="Current speed scale" hidden></aside>
 
-      <div id="readout" class="readout" aria-live="polite">
-        <span class="readout-ll">—</span>
-        <span class="readout-depth">—</span>
-      </div>
-
-      <aside id="locator" class="locator" aria-label="Locator map of the northern Gulf of Mexico"></aside>
       <div id="geo-labels" class="geo-labels" aria-hidden="true"></div>
       <div id="buoy-marks" hidden></div>
       <div id="aircraft-marks" hidden></div>
-      <p id="caption" class="scene-caption">
-        Looking north · Mississippi Sound · GEBCO 2024 (modified) · 1× vertical
-      </p>
+      <div class="chart-foot">
+        <p id="status" class="status" role="status" hidden></p>
 
-      <p id="status" class="status" role="status" hidden></p>
+        <!-- One ruled block, divided by hairlines. A chart's title block, not
+             a stack of panels: nothing inside gets a border of its own. -->
+        <div class="block">
+          <section id="timeline" class="block-time" aria-label="Chart time" hidden></section>
 
-      <form id="controls" class="controls" autocomplete="off">
-        <div class="control-block control-exag">
-          <label for="exaggeration">Vertical exaggeration</label>
-          <div class="control-row">
-            <input
-              id="exaggeration"
-              type="range"
-              min="1"
-              max="50"
-              step="1"
-              value="1"
-            />
-            <output id="exaggeration-out" for="exaggeration">1×</output>
+          <div class="block-body">
+            <aside
+              id="readout"
+              class="block-cell block-readout"
+              aria-live="polite"
+              aria-label="Chart inspector: position, seafloor depth, and the hovered station or aircraft"
+            ></aside>
+
+            <form id="controls" class="block-controls" autocomplete="off">
+              <fieldset id="layers" class="block-cell">
+                <legend>Layers</legend>
+                <div class="opt-grid">
+                  <label><input type="checkbox" name="radar" value="1" /> Radar</label>
+                  <label><input type="checkbox" name="sky" value="1" /> Clouds &amp; rain</label>
+                  <label><input type="checkbox" name="currents" value="1" /> Currents</label>
+                  <label><input type="checkbox" name="buoys" value="1" /> Buoys</label>
+                  <label><input type="checkbox" name="aircraft" value="1" checked /> Aircraft</label>
+                </div>
+              </fieldset>
+
+              <div class="block-cell block-stack">
+                <fieldset id="contours" class="sub">
+                  <legend>Contours</legend>
+                  <div class="opt-row">
+                    <label><input type="radio" name="contour" value="0" /> Off</label>
+                    <label><input type="radio" name="contour" value="10" checked /> 10 m</label>
+                    <label><input type="radio" name="contour" value="50" /> 50 m</label>
+                    <label><input type="radio" name="contour" value="100" /> 100 m</label>
+                  </div>
+                </fieldset>
+                <fieldset id="units" class="sub">
+                  <legend>Depth units</legend>
+                  <div class="opt-row">
+                    <label><input type="radio" name="units" value="m" checked /> Metres</label>
+                    <label><input type="radio" name="units" value="ft" /> Feet</label>
+                  </div>
+                </fieldset>
+              </div>
+
+              <div class="block-cell block-stack">
+                <div class="dial">
+                  <label for="exaggeration">Vertical exaggeration</label>
+                  <div class="dial-row">
+                    <input id="exaggeration" type="range" min="1" max="50" step="1" value="1" />
+                    <output id="exaggeration-out" for="exaggeration">1&times;</output>
+                  </div>
+                </div>
+                <div class="dial">
+                  <label for="sun-azimuth">Sun azimuth</label>
+                  <div class="dial-row">
+                    <input id="sun-azimuth" type="range" min="0" max="360" step="1" value="315" />
+                    <output id="sun-azimuth-out" for="sun-azimuth">315&deg;</output>
+                  </div>
+                </div>
+                <div class="dial">
+                  <label for="sun-altitude">Sun altitude</label>
+                  <div class="dial-row">
+                    <input id="sun-altitude" type="range" min="5" max="85" step="1" value="38" />
+                    <output id="sun-altitude-out" for="sun-altitude">38&deg;</output>
+                  </div>
+                </div>
+              </div>
+
+              <aside
+                id="currents-legend"
+                class="block-cell legend legend-currents"
+                aria-label="Current speed scale"
+                hidden
+              ></aside>
+            </form>
           </div>
+
+          <!-- The source note, where a chart puts it: a hairline off the
+               bottom edge, small and quiet. -->
+          <p id="caption" class="block-note">
+            Looking north &middot; North-Central Gulf &middot; GEBCO 2024 (modified) &middot; 1&times; vertical
+          </p>
         </div>
-
-        <fieldset id="contours" class="control-block">
-          <legend>Contours</legend>
-          <div class="radio-row">
-            <label><input type="radio" name="contour" value="0" /> Off</label>
-            <label><input type="radio" name="contour" value="10" checked /> 10 m</label>
-            <label><input type="radio" name="contour" value="50" /> 50 m</label>
-            <label><input type="radio" name="contour" value="100" /> 100 m</label>
-          </div>
-        </fieldset>
-
-        <fieldset id="ocean" class="control-block">
-          <legend>Ocean</legend>
-          <div class="radio-row">
-            <span class="ocean-layer">Currents</span>
-            <label><input type="radio" name="currents" value="0" checked /> Off</label>
-            <label><input type="radio" name="currents" value="1" /> On</label>
-          </div>
-          <div class="radio-row">
-            <span class="ocean-layer">Buoys</span>
-            <label><input type="radio" name="buoys" value="0" checked /> Off</label>
-            <label><input type="radio" name="buoys" value="1" /> On</label>
-          </div>
-        </fieldset>
-
-        <fieldset id="aircraft" class="control-block">
-          <legend>Aircraft</legend>
-          <div class="radio-row">
-            <label><input type="radio" name="aircraft" value="0" /> Off</label>
-            <label><input type="radio" name="aircraft" value="1" checked /> On</label>
-          </div>
-        </fieldset>
-
-        <div class="control-block">
-          <label for="sun-azimuth">Sun azimuth</label>
-          <div class="control-row">
-            <input id="sun-azimuth" type="range" min="0" max="360" step="1" value="315" />
-            <output id="sun-azimuth-out" for="sun-azimuth">315°</output>
-          </div>
-        </div>
-
-        <div class="control-block">
-          <label for="sun-altitude">Sun altitude</label>
-          <div class="control-row">
-            <input id="sun-altitude" type="range" min="5" max="85" step="1" value="38" />
-            <output id="sun-altitude-out" for="sun-altitude">38°</output>
-          </div>
-        </div>
-      </form>
+      </div>
 
       <dialog id="about" class="about">
         <form method="dialog">
@@ -194,15 +204,85 @@
           <div class="ocean-about">
             <h3>Ocean overlay</h3>
             <p>
-              A snapshot HYCOM surface-current field can be drawn as
-              particles. Motion is visually exaggerated and is not a time stepper.
-              NDBC stations appear as wind barbs. This viewer is
-              <strong>not an official NOAA product</strong>. Surface currents courtesy
-              of the HYCOM consortium
+              A HYCOM surface-current forecast stack can be drawn as particles.
+              The particle motion is visually exaggerated: it shows the shape of
+              the field, not a parcel of water moving at speed. Which forecast
+              hour the field is drawn at comes from the timeline (below).
+              This viewer is <strong>not an official NOAA product</strong>. Surface
+              currents courtesy of the HYCOM consortium
               (<span id="hycom-dataset">dataset id when present</span>).
               Buoy observations are NOAA NDBC open data.
             </p>
+            <h3>Reading a station</h3>
+            <p>
+              Each NDBC station is drawn as a glyph at its position, with a
+              wind barb when it reported wind. The glyph is the
+              <strong>platform</strong>, taken from NDBC's own station table
+              rather than guessed: a hollow circle is a moored buoy and a
+              hollow diamond a DART — both float — while a filled square is a
+              fixed shore or pier station and a filled triangle an oil
+              platform. In this box that separation is most of the story:
+              only a handful of marks are genuinely offshore instruments, and
+              the rest are tide gauges and met stations along the coast.
+            </p>
+            <p>
+              Marks <strong>fade with the age of their last observation</strong>
+              — full strength under an hour, dimmer to six hours, faintest
+              beyond. NDBC leaves dead stations in its table indefinitely,
+              so this box routinely carries instruments that last reported
+              weeks ago; without the fade they would be drawn exactly like a
+              reading from twenty minutes back. Hover or focus a mark and the
+              inspector names the platform and states the age outright.
+            </p>
           </div>
+          <div class="weather-about">
+            <h3>Weather</h3>
+            <p>
+              <strong>Radar</strong> is NOAA's time-enabled base reflectivity
+              mosaic, clipped to this chart and animated over roughly the last
+              two hours. The frames are <strong>colour-mapped pictures, not
+              values</strong>: the chart can drape and loop them, but there is
+              no dBZ behind a pixel for the inspector to report. A scan is
+              typically ten to twenty minutes old by the time it is drawn, and
+              the caption always names the scan time and its age.
+            </p>
+            <p>
+              <strong>Clouds and rain are a rendering of a forecast, not a
+              photograph of the sky.</strong> The shapes are procedural noise.
+              What the National Weather Service supplies is a coarse lattice of
+              gridpoints over this box — how much of the sky is covered, how
+              likely precipitation is, and which way the wind blows — and that
+              drives how thick the deck is, which way it drifts, and where rain
+              falls. No individual cloud here is a real cloud. Where NWS
+              published no value the deck is left empty rather than drawn clear.
+            </p>
+            <p>
+              The <strong>seven-day outlook</strong> is NWS plain language. It
+              is read at a point on shore, not on the water: the API answers
+              &ldquo;Marine Forecast Not Supported&rdquo; for a marine point, so
+              the strip names the land point it came from. Not a marine
+              forecast. Not for navigation.
+            </p>
+          </div>
+
+          <h3>Chart time</h3>
+          <p>
+            The timeline under the chart is the clock every layer reads. It runs
+            from the earliest loaded frame to the latest, with a magenta tick at
+            the present moment. <strong>LIVE</strong> pins the chart to now and
+            follows it as fresh data lands; dragging the track, or the arrow keys
+            once the track has focus, moves off live to any other time.
+            <strong>▶</strong> sweeps the whole span and loops.
+          </p>
+          <p>
+            Each layer declares the window it can actually speak for, and the
+            rows under the track draw those windows. <strong>Move the chart to a
+            time a layer does not cover and that layer stops drawing</strong> —
+            its row is struck through and names the boundary. Currents are a
+            forecast and reach hours ahead; buoy and aircraft reports are
+            observations at one instant and are live-only. Nothing is held over
+            and redrawn under a timestamp it cannot support.
+          </p>
           <div class="aircraft-about">
             <h3>Aircraft overlay</h3>
             <p>

@@ -8,10 +8,10 @@ RAW_DIR="${ROOT}/data/raw"
 WORK_DIR="${ROOT}/data/work"
 TILE_DIR="${ROOT}/data/tiles"
 
-AOI_WEST="-90.20"
-AOI_SOUTH="29.50"
-AOI_EAST="-87.45"
-AOI_NORTH="30.78"
+# The AOI comes from internal/tiles.AOI, never a copy: this script sat on the
+# original -90.20/29.50 box while the Go source of truth moved twice.
+eval "$(cd "$ROOT" && go run ./cmd/tiler aoi)"
+: "${AOI_WEST:?tiler aoi did not report the AOI}"
 
 WARPED="${WORK_DIR}/aoi_3857.tiff"
 RGB="${WORK_DIR}/terrain_rgb.tiff"

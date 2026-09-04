@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-var testAOI = BBox{West: -90.2, South: 29.5, East: -87.45, North: 30.78}
+var testAOI = BBox{West: -91.36, South: 28.5, East: -86.69, North: 30.78}
 
 func TestCurrentsQueryAsksForOneNetCDFTime(t *testing.T) {
 	when := time.Date(2026, 9, 3, 15, 0, 0, 0, time.UTC)

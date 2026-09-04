@@ -28,15 +28,23 @@ allowed).
 
 ## Area of interest
 
-Mississippi Bight, New Orleans to Orange Beach and south to NDBC
-42354, WGS84:
+North-central Gulf — Atchafalaya Bay to Pensacola, mainland south past
+Southwest Pass to the shelf break and the head of Mississippi Canyon,
+WGS84:
 
 | | |
 |---|---|
-| West | −90.20 |
-| South | 29.50 |
-| East | −87.45 |
+| West | −91.36 |
+| South | 28.50 |
+| East | −86.69 |
 | North | 30.78 |
+
+The east–west span is a viewer constraint, not just a coverage one. At
+452 × 254 km the box is 1.78:1, matching a 16:9 viewport. The camera
+cover-fits the chart — it fills the frame and crops the overflow rather
+than showing background — so a narrower box would crop the north–south
+extent on a widescreen monitor and put Mississippi Canyon off screen at
+load.
 
 `internal/tiles.AOI` is this box, and it is the authority — the table
 above is a copy of it. GEBCO and (eventually) NOAA tiles are clipped
@@ -85,8 +93,10 @@ retrieved — verify NESDIS Notice of Changes before first pull.**
 | USGS 3DEP lidar | [AWS Open Data Registry — USGS 3DEP](https://registry.opendata.aws/usgs-lidar/). Topography side of the coastal strip. | U.S. government work, public domain. | Attribution requested (USGS 3DEP). No endorsement implied. | No |
 | SRTM / Copernicus DEM | SRTM via public NASA / OpenTopography-class archives. Copernicus DEM via the Copernicus programme distribution (registration-free mirrors only; if a portal requires an account, do not use that portal). | SRTM: U.S. government work, public domain. Copernicus DEM: Copernicus licence (free use with attribution; no implied endorsement). | SRTM: NASA / NGA collection acknowledgment. Copernicus: “produced using Copernicus WorldDEM-30 © DLR e.V. 2010–2014 and © Airbus Defence and Space GmbH 2014–2018 provided under COPERNICUS by the European Union and ESA; all rights reserved” (confirm the exact string for the edition pulled). | No |
 | HYCOM | Public THREDDS NCSS `https://ncss.hycom.org/thredds/ncss/grid/GLBy0.08/latest`. Two paths now pull it: `make ocean` does a one-shot classic-NetCDF request (single step, surface `vertCoord=0`) to seed or refresh an air-gapped tree; the server's background refresher (default on, `GULF_OCEAN_REFRESH=0` to disable) does 10 recurring single-time classic-NetCDF requests spanning a `-3h..+24h` window on a ~1 h jittered ticker, merging them into one step per forecast time. (CSV was tried for the refresher first; NCSS's grid endpoint rejects `accept=csv` for a grid subset with HTTP 400 — CSV is only valid there for point requests.) Whichever last ran wins on disk, so the retrieval date below is continuously replaced while the refresher is enabled, not fixed at one pull. Last `make ocean` retrieval: 2026-08-26T00:15:02Z, snapshot validTime 2026-08-26T00:00:00Z. | Public model output; distributor terms on the THREDDS node in use. | Acknowledge the HYCOM consortium and the specific run / experiment ID. | No |
-| NDBC buoys | [ndbc.noaa.gov](https://www.ndbc.noaa.gov/). No API key. Retrieved 2026-08-26T00:15:02Z via `make ocean`. | NOAA open / NODD-class public data. | Same NODD rules. | No |
+| NDBC buoys | [ndbc.noaa.gov](https://www.ndbc.noaa.gov/). No API key. Two paths pull it: `make ocean` does a one-shot seed, and the server's background refresher (default on, `GULF_OCEAN_REFRESH=0` to disable) re-polls `station_table.txt` plus each in-AOI station's `realtime2` file on a ~10 m jittered ticker. Whichever last ran wins on disk, so the retrieval date is continuously replaced, not fixed at one pull. Station platform class comes from the table's free-text `TTYPE` column (~65 distinct spellings; classified by keyword, never inferred from the ID). Last `make ocean` retrieval: 2026-08-26T00:15:02Z. | NOAA open / NODD-class public data. | Same NODD rules. | No |
 | Argo floats | [argo.ucsd.edu](https://argo.ucsd.edu/). NetCDF profiles. | Freely available; collected and distributed by the International Argo Program and contributing national programmes. | Required: “These data were collected and made freely available by the International Argo Program and the national programs that contribute to it. (https://argo.ucsd.edu, https://www.ocean-ops.org). The Argo Program is part of the Global Ocean Observing System.” | No |
+| NOAA radar mosaic (base reflectivity) | `https://mapservices.weather.noaa.gov/eventdriven/rest/services/radar/radar_base_reflectivity_time/ImageServer` — ArcGIS `exportImage`, `f=image&format=png32`, clipped to the AOI at one instant per request. Anonymous, no key. The service's own `timeInfo.timeExtent` is the history available (about two hours), so a loop exists on first boot rather than being accumulated. Two paths pull it: `make weather` seeds `data/weather/`, and the server's background refresher (default on, `GULF_WEATHER_REFRESH=0` to disable) rebuilds the loop every ~5 m. **Rendered imagery, not values** — the frames are a colour-mapped picture, so nothing downstream can report a dBZ. Observed intermittently advertising a window days out of date; `internal/weather` refuses a window staler than 3 h rather than serving history as current, and leaves the previous snapshot in place. Retrieval date is continuously replaced while the refresher is enabled. | NOAA/NWS public service. | Acknowledge NOAA/NWS. No endorsement implied. Not for navigation. Must not be presented as an official NWS radar product. | No — `data/weather/` is gitignored |
+| NWS gridded forecast + outlook | `https://api.weather.gov` — `/points/{lat},{lon}` then `/gridpoints/{wfo}/{x},{y}` for a 5×3 lattice over the AOI (skyCover, probabilityOfPrecipitation, quantitativePrecipitation, windSpeed, windDirection, temperature), plus `/gridpoints/.../forecast` for the plain-language 7-day outlook. No key; a `User-Agent` identifying the caller is required. Refreshed hourly by the server, or seeded by `make weather`. The AOI straddles WFO LIX and MOB and reaches offshore; a gridpoint that fails leaves nil cells rather than failing the field. The **plain-language** endpoint is land-only — a marine point returns `MarineForecastNotSupported` — so the outlook is read at a shore point (Biloxi, 30.40 N / 88.89 W) and the UI names it as such. | U.S. government work, public domain. | Acknowledge NOAA/NWS. No endorsement implied. Not a marine forecast. Not for navigation. | No — `data/weather/` is gitignored |
 | adsb.lol | `https://api.adsb.lol/v2/lat/{lat}/lon/{lon}/dist/{nm}`, anonymous, no key. Primary live feed at view time via `/api/aircraft`. | ODbL as documented by the API. | Acknowledge adsb.lol / feeders. No endorsement. Not for navigation. | No |
 | OpenSky Network | `https://opensky-network.org/api/states/all` bbox, anonymous, no key. Reserve feed only, used when adsb.lol fails. | OpenSky terms for non-commercial/research use of the REST API. | Acknowledge The OpenSky Network. No endorsement. Not for navigation. | No |
 
@@ -103,21 +113,33 @@ the repository. `make ocean` writes `data/ocean/{currents,buoys,manifest}.json`
 (gitignored) as a one-shot pull; that snapshot is the seed and the air-gap
 fallback.
 
-By default the running server does more than serve that file: a background
-goroutine re-fetches HYCOM currents on a ~1 h jittered ticker (first run
-15s after boot), writes the result through to `data/ocean/currents.json`,
-and publishes it to an in-memory cache; a failed fetch serves the last good
-stack instead of failing the request. Nothing on the HTTP request path
-calls out. Set `GULF_OCEAN_REFRESH=0` to stop the ticker — the server then
-serves only whatever is already on disk, with no outbound calls, which is
-also how `/api/ocean/manifest` and `/api/ocean/buoys` behave in every
-configuration: NDBC observations are never re-fetched by the running
-server, only by a fresh `make ocean`.
+By default the running server does more than serve those files. Two
+background goroutines refresh the two layers on independent tickers,
+because their upstreams republish on very different cadences:
 
-Because of the refresher, `data/ocean/currents.json`'s retrieval date is
-continuously replaced while the server runs with refresh enabled, not
-fixed at one pull. The date below is the most recent `make ocean` seed,
-not a claim about what is currently on disk.
+| Layer | Ticker | First run | Writes |
+|---|---|---|---|
+| HYCOM currents | ~1 h, jittered | 15s after boot | `data/ocean/currents.json` |
+| NDBC buoys | ~10 m, jittered (`GULF_BUOY_REFRESH_EVERY`) | 20s after boot | `data/ocean/buoys.json` |
+
+Each writes through to disk and publishes to an in-memory cache; a failed
+fetch serves the last good data instead of failing the request. Nothing on
+the HTTP request path calls out. Set `GULF_OCEAN_REFRESH=0` to stop **both**
+tickers — the server then serves only whatever is already on disk, with no
+outbound calls, which is also how `/api/ocean/manifest` behaves in every
+configuration.
+
+Because both layers refresh, their retrieval dates are continuously
+replaced while the server runs with refresh enabled, not fixed at one pull.
+The dates below are the most recent `make ocean` seed, not a claim about
+what is currently on disk.
+
+`manifest.json` records `retrievedAt` **per layer**, and a refresh of one
+layer carries the other's timestamp forward untouched rather than
+restamping it — a currents-only refresh never claims NDBC was re-polled,
+and a buoys-only refresh never claims HYCOM was. The top-level
+`retrievedAt` mirrors the currents layer and is kept only for readers that
+predate the per-layer fields; prefer those.
 
 Seed retrieval: **2026-08-26T00:15:02Z**, dataset `GLBy0.08/latest`,
 currents validTime `2026-08-26T00:00:00Z`. Files live in `data/ocean/` (gitignored).

@@ -18,7 +18,7 @@ import (
 func main() {
 	out := flag.String("out", "data/ocean", "snapshot output directory")
 	hycomURL := flag.String("hycom-url", "", "HYCOM NCSS URL (full query or base)")
-	ndbcBase := flag.String("ndbc-base", "https://www.ndbc.noaa.gov", "NDBC site origin")
+	ndbcBase := flag.String("ndbc-base", ocean.DefaultNDBCBase, "NDBC site origin")
 	flag.Parse()
 
 	if strings.TrimSpace(*hycomURL) == "" {
@@ -34,12 +34,8 @@ func main() {
 		)
 	}
 
-	ndbc := strings.TrimRight(*ndbcBase, "/")
-	ep := ocean.Endpoints{
-		HYCOM:           hycom,
-		StationTable:    ndbc + "/data/stations/station_table.txt",
-		Realtime2Prefix: ndbc + "/data/realtime2/",
-	}
+	ep := ocean.NDBCEndpoints(*ndbcBase)
+	ep.HYCOM = hycom
 	aoi := ocean.BBox{
 		West:  tiles.AOI.West,
 		South: tiles.AOI.South,

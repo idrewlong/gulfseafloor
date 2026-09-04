@@ -1,6 +1,7 @@
 // tiler writes a terrain-RGB-encoded XYZ tile pyramid.
 //
 //	tiler synth -out data/tiles -zmin 6 -zmax 14
+//	tiler aoi                       # print the AOI, for scripts
 //
 // The surface is GEBCO 2024 on the open shelf and a procedural stand-in
 // inside the Sound, the bays and the lagoons, where GEBCO's 460 m cells do
@@ -28,7 +29,7 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintf(os.Stderr, "usage: tiler synth [flags]\n")
+		fmt.Fprintf(os.Stderr, "usage: tiler {synth|aoi} [flags]\n")
 		os.Exit(2)
 	}
 	switch os.Args[1] {
@@ -37,10 +38,40 @@ func main() {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
+	case "aoi":
+		if err := printAOI(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command %q\n", os.Args[1])
 		os.Exit(2)
 	}
+}
+
+// printAOI publishes internal/tiles.AOI to the shell pipelines. Those scripts
+// used to keep their own copies of the box, and both were still on the
+// original -90.20/29.50 chart long after the Go source of truth had moved
+// twice. Reading it from here is what keeps that from happening again.
+func printAOI(args []string) error {
+	fs := flag.NewFlagSet("aoi", flag.ExitOnError)
+	format := fs.String("format", "shell", "shell, csv, or bbox")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	switch *format {
+	case "shell":
+		fmt.Printf("AOI_WEST=%g\nAOI_SOUTH=%g\nAOI_EAST=%g\nAOI_NORTH=%g\n",
+			tiles.AOI.West, tiles.AOI.South, tiles.AOI.East, tiles.AOI.North)
+	case "csv":
+		fmt.Printf("%g,%g,%g,%g\n", tiles.AOI.West, tiles.AOI.South, tiles.AOI.East, tiles.AOI.North)
+	case "bbox":
+		// west south east north, space separated — argv-friendly.
+		fmt.Printf("%g %g %g %g\n", tiles.AOI.West, tiles.AOI.South, tiles.AOI.East, tiles.AOI.North)
+	default:
+		return fmt.Errorf("unknown -format %q", *format)
+	}
+	return nil
 }
 
 func synth(args []string) error {

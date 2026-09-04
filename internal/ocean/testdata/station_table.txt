@@ -1,4 +1,5 @@
-#id|owner|ttype|hull|name|payload|location|timezone|forecast|note
-WYCM6|NWLON|fixed|n/a|Gulfport Harbor|stdmet|30.360 N 89.081 W|CST|n/a|n/a
-42040|NDBC|buoy|3m|Luke Offshore Test Site|stdmet|29.50 N 88.207 W|CST|n/a|n/a
-41009|NDBC|buoy|3m|Far Away|stdmet|28.500 N 80.180 W|EST|n/a|n/a
+# STATION_ID | OWNER | TTYPE | HULL | NAME | PAYLOAD | LOCATION | TIMEZONE | FORECAST | NOTE
+#
+wycm6|NOS|Water Level Observation Network||Gulfport Harbor||30.360 N 89.081 W (30&#176;21'36" N 89&#176;4'51" W)|C| |
+42040|N|3-meter discus buoy|3D|Luke Offshore Test Site|Athena payload|29.50 N 88.207 W (29&#176;30'0" N 88&#176;12'25" W)|C|FZUS54.KMOB |
+41009|N|3-meter discus buoy|3D|Far Away|Athena payload|28.500 N 80.180 W (28&#176;30'0" N 80&#176;10'48" W)|E|FZUS52.KMLB |

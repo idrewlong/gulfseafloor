@@ -19,6 +19,18 @@ function smoothstep(edge0: number, edge1: number, x: number): number {
   return t * t * (3 - 2 * t);
 }
 
+/** Deepest water colour, reached asymptotically at the bottom of the window. */
+const ABYSS: readonly number[] = [0.04, 0.09, 0.2];
+
+/**
+ * How far a depth sits toward the abyss, 0..1 on a log curve. Must stay
+ * identical to the same expression in terrain.frag.glsl or the legend drifts
+ * from the surface it describes.
+ */
+export function abyssMix(depth: number, depthMin: number): number {
+  return Math.log(1 + Math.max(0, depth - 8)) / Math.log(1 + Math.max(1, -depthMin));
+}
+
 /** Unlit terrain.frag.glsl `base` colour at elevation metres (WGS84 up). */
 export function unlitBaseColor(elev: number, depthMin = DEFAULT_DEPTH_MIN): [number, number, number] {
   const depth = Math.max(-elev, 0);
@@ -32,7 +44,12 @@ export function unlitBaseColor(elev: number, depthMin = DEFAULT_DEPTH_MIN): [num
   beach = mix3(beach, dune, smoothstep(0.6, 2.0, elev));
   const ground = mix3(beach, scrub, smoothstep(1.5, 3.3, elev));
 
-  const gulf = smoothstep(2.0, Math.max(12.0, -depthMin * 0.45), depth);
+  // `gulf` used to stretch with the depth window, which worked while the chart
+  // bottomed out at -81 m. Against a -2500 m window it stretched so far that
+  // 10-200 m — the shelf, a third of the chart — resolved into 3 RGB units of
+  // separation. It now completes over a fixed 60 m, and the deep half of the
+  // range is carried by the abyss blend below.
+  const gulf = smoothstep(2.0, 60.0, depth);
   const scatter = mix3(
     mix3([0.42, 0.62, 0.58], [0.2, 0.4, 0.42], smoothstep(1.0, 8.0, depth)),
     [0.12, 0.3, 0.4],
@@ -40,6 +57,11 @@ export function unlitBaseColor(elev: number, depthMin = DEFAULT_DEPTH_MIN): [num
   );
   const absorb = 1 - Math.exp(-mix(0.5, 0.1, gulf) * depth);
   let water = mix3([0.62, 0.58, 0.42], scatter, absorb);
+  // Beer-Lambert saturates near 50 m, so past the shelf every depth returned
+  // the same blue. Blending toward an abyssal navy on a log curve keeps depth
+  // legible the rest of the way down without disturbing the first 8 m, where
+  // the sand bed and the waterline live.
+  water = mix3(water, ABYSS, abyssMix(depth, depthMin));
   const foam = (1 - land) * (1 - smoothstep(-0.45, 0.12, elev));
   water = mix3(water, [0.88, 0.91, 0.9], foam * 0.22);
 
@@ -53,16 +75,63 @@ function cssRgb(color: readonly number[]): string {
   return `rgb(${r}, ${g}, ${b})`;
 }
 
-/** Vertical CSS ramp: `min` metres at the bottom, `max` at the top. */
-export function legendGradientCss(min: number, max: number, depthMin = DEFAULT_DEPTH_MIN): string {
-  const steps = 20;
+/**
+ * Symmetric-log position of an elevation on the depth rail, 0 at `min` and 1
+ * at `max`.
+ *
+ * A linear rail worked while the chart bottomed out at -81 m. Against -2500 m
+ * it spent 92% of its length on near-identical abyssal navy and crushed every
+ * depth a reader actually inspects — the Sound, the delta, the shelf — plus
+ * all of the land into the top 5%. Land alone used to hold 13% of it.
+ *
+ * sign(e)·ln(1+|e|) gives each decade of depth about the same run of rail, so
+ * 0..-10 m, -10..-100 m and -100..-1000 m each get roughly a fifth of it.
+ */
+function axisG(elev: number): number {
+  return Math.sign(elev) * Math.log1p(Math.abs(elev));
+}
+
+export function depthAxisFraction(elev: number, min: number, max: number): number {
+  const lo = axisG(min);
+  const span = axisG(max) - lo;
+  if (!(span > 0)) {
+    return 0;
+  }
+  return Math.min(1, Math.max(0, (axisG(elev) - lo) / span));
+}
+
+/** Inverse of {@link depthAxisFraction}: the elevation at rail fraction `t`. */
+export function depthAxisElevation(t: number, min: number, max: number): number {
+  const lo = axisG(min);
+  const g = lo + (axisG(max) - lo) * t;
+  return Math.sign(g) * Math.expm1(Math.abs(g));
+}
+
+/**
+ * CSS ramp from `min` metres to `max`. The default `to top` suits the depth
+ * legend's vertical rail; the inspector's ramp is a wide, 7px-tall bar, where
+ * `to top` would squeeze the whole scale into those 7 pixels and read as one
+ * flat colour, so it asks for `to right`.
+ *
+ * Stops are placed on the symmetric-log axis, so the gradient and the
+ * inspector's tick share one scale.
+ */
+export function legendGradientCss(
+  min: number,
+  max: number,
+  depthMin = DEFAULT_DEPTH_MIN,
+  direction: 'to top' | 'to right' = 'to top',
+): string {
+  // More stops than the old 20: the log axis packs real colour change into the
+  // shallow end, and coarse sampling there shows as banding.
+  const steps = 32;
   const stops: string[] = [];
   for (let i = 0; i <= steps; i++) {
     const t = i / steps;
-    const elev = min + (max - min) * t;
-    stops.push(`${cssRgb(unlitBaseColor(elev, depthMin))} ${(t * 100).toFixed(0)}%`);
+    const elev = depthAxisElevation(t, min, max);
+    stops.push(`${cssRgb(unlitBaseColor(elev, depthMin))} ${(t * 100).toFixed(1)}%`);
   }
-  return `linear-gradient(to top, ${stops.join(', ')})`;
+  return `linear-gradient(${direction}, ${stops.join(', ')})`;
 }
 
 /** Natural Sound ramp for the legend: gulf → turbid shallows → sand → dune. */

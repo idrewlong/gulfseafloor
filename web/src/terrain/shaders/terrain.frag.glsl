@@ -83,7 +83,8 @@ void main() {
   vec3 ground = mix(beach, scrub, smoothstep(1.5, 3.3, elev));
 
   // Beer–Lambert through turbid Sound water; sand bed only in the last metre.
-  float gulf = smoothstep(2.0, max(12.0, -uDepthMin * 0.45), depth);
+  // Fixed 60 m, not a window-relative stretch: see lut.ts, which must match.
+  float gulf = smoothstep(2.0, 60.0, depth);
   vec3 scatter = mix(
     mix(vec3(0.42, 0.62, 0.58), vec3(0.20, 0.40, 0.42), smoothstep(1.0, 8.0, depth)),
     vec3(0.12, 0.30, 0.40),
@@ -91,6 +92,10 @@ void main() {
   );
   float absorb = 1.0 - exp(-mix(0.50, 0.10, gulf) * depth);
   vec3 water = mix(vec3(0.62, 0.58, 0.42), scatter, absorb);
+  // Log blend to the abyss so the slope and canyon keep depth cues past the
+  // point Beer-Lambert saturates. Mirrors abyssMix() in lut.ts.
+  float abyss = log(1.0 + max(0.0, depth - 8.0)) / log(1.0 + max(1.0, -uDepthMin));
+  water = mix(water, vec3(0.04, 0.09, 0.20), abyss);
 
   float foam = (1.0 - land) * (1.0 - smoothstep(-0.45, 0.12, elev));
   water = mix(water, vec3(0.88, 0.91, 0.90), foam * 0.22);

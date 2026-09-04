@@ -5,9 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build",
-    "preview": "vite preview",
-    "test": "node --experimental-strip-types --test src/terrain/pick.test.ts src/terrain/lodPolicy.test.ts src/viewerConfig.test.ts src/cameraFrame.test.ts src/ui/labelLayout.test.ts src/geo/orient.test.ts src/overlay/landMask.test.ts src/overlay/currentsField.test.ts src/overlay/currentsTime.test.ts src/overlay/currents.test.ts src/overlay/windBarb.test.ts src/overlay/oceanUi.test.ts src/overlay/buoys.test.ts src/overlay/aircraftUi.test.ts src/overlay/aircraft.test.ts src/overlay/speedRamp.test.ts src/lut.test.ts"
+    "lint": "oxlint",
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types --test 'src/**/*.test.ts'",
+    "build": "npm run lint && npm run typecheck && vite build",
+    "preview": "vite preview"
   },
   "dependencies": {
     "@fontsource/barlow-condensed": "^5.3.0",
@@ -15,6 +17,7 @@
   },
   "devDependencies": {
     "@types/three": "^0.185.4",
+    "oxlint": "^1.81.0",
     "typescript": "^7.0.2",
     "vite": "^8.2.2"
   }

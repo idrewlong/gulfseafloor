@@ -64,6 +64,24 @@ export function aircraftCaption(source: string | null, fetchedAt: string | null)
   return `Aircraft ${sourceName} ${time}`;
 }
 
+/** The aircraft's fields as inspector rows. */
+export function aircraftRows(a: Aircraft): { label: string; value: string }[] {
+  const rows: { label: string; value: string }[] = [];
+  if (a.altBaroM != null) {
+    rows.push({ label: 'Altitude', value: `${Math.round(a.altBaroM)} m` });
+  }
+  if (a.trackDeg != null) {
+    rows.push({ label: 'Track', value: `${Math.round(a.trackDeg)}\u00b0` });
+  }
+  if (a.gsMps != null) {
+    rows.push({ label: 'Ground speed', value: `${msToKnots(a.gsMps).toFixed(1)} kt` });
+  }
+  if (a.onGround === true) {
+    rows.push({ label: 'State', value: 'On ground' });
+  }
+  return rows;
+}
+
 export function aircraftReadout(a: Aircraft): string {
   const lines = [a.callsign || a.icao24];
   if (a.callsign) {
@@ -82,13 +100,33 @@ export function aircraftReadout(a: Aircraft): string {
 }
 
 export function deadReckon(a: Aircraft, dtSec: number): { lon: number; lat: number } {
+  const out = { lon: a.lon, lat: a.lat };
+  deadReckonInto(a, dtSec, out);
+  return out;
+}
+
+/**
+ * deadReckon without the allocation, for the render loop.
+ *
+ * This runs once per aircraft per frame. Returning a fresh `{lon, lat}` there
+ * — and then spreading it into a fresh copy of the whole row — allocated two
+ * objects per aircraft per frame, several thousand a second in a busy box.
+ * The caller owns `out` and reuses it across frames.
+ */
+export function deadReckonInto(
+  a: Aircraft,
+  dtSec: number,
+  out: { lon: number; lat: number },
+): void {
   if (
     a.onGround !== false ||
     a.trackDeg == null ||
     a.gsMps == null ||
     dtSec === 0
   ) {
-    return { lon: a.lon, lat: a.lat };
+    out.lon = a.lon;
+    out.lat = a.lat;
+    return;
   }
 
   const dt = Math.min(Math.max(dtSec, 0), AIRCRAFT_MAX_DEAD_RECKON_SEC);
@@ -97,8 +135,6 @@ export function deadReckon(a: Aircraft, dtSec: number): { lon: number; lat: numb
   const northM = a.gsMps * Math.cos(trackRad) * dt;
   const mPerDegLat = 111_320;
   const mPerDegLon = mPerDegLat * Math.cos((a.lat * Math.PI) / 180);
-  return {
-    lon: a.lon + eastM / mPerDegLon,
-    lat: a.lat + northM / mPerDegLat,
-  };
+  out.lon = a.lon + eastM / mPerDegLon;
+  out.lat = a.lat + northM / mPerDegLat;
 }

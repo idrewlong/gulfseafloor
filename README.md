@@ -1,6 +1,7 @@
 # Gulf Seafloor Viewer
 
-A bathymetric terrain viewer for the Mississippi Bight. Elevation is packed into
+A bathymetric terrain viewer for the north-central Gulf — Atchafalaya Bay to
+Pensacola, south to the head of Mississippi Canyon. Elevation is packed into
 terrain-RGB PNG tiles, decoded in a WebGL2 vertex shader, and served from a
 single static Go binary. The intended delivery chassis is a hardened, air-gap
 capable Kubernetes package.
@@ -42,9 +43,10 @@ One dataset has been fetched into this repository: an AOI clip of the GEBCO
 `scripts/fetch-gebco.py`. No NOAA, USGS, HYCOM, NDBC, or Argo bytes are
 vendored *in the repository* — the repo itself carries only the GEBCO clip.
 A running server is a different story: `make ocean` writes HYCOM and NDBC
-bytes to the gitignored `data/ocean/`, and the background currents
-refresher (see §3, "Air-gap as a constraint") writes fresh HYCOM bytes
-there on its own schedule. Both are untracked by git. Retrieval dates are
+bytes to the gitignored `data/ocean/`, `make weather` writes NOAA radar and
+NWS forecast bytes to the gitignored `data/weather/`, and the background
+refreshers (see §3, "Air-gap as a constraint") keep writing fresh bytes to
+both on their own schedules. None of it is tracked by git. Retrieval dates are
 recorded per row; rows without one are unretrieved. Before the first pull,
 check
 the [NESDIS Notice of Changes](https://www.nesdis.noaa.gov/about/documents-reports/notice-of-changes)
@@ -67,6 +69,8 @@ NODD buckets):
 | SRTM / Copernicus DEM | public DEM archives | SRTM: public domain. Copernicus DEM: Copernicus licence | Copernicus requires attribution |
 | HYCOM | public THREDDS/OPeNDAP | public model output | Consortium acknowledgment |
 | NDBC buoys | ndbc.noaa.gov | NODD / NOAA open; no API key | NODD rules |
+| NOAA base reflectivity mosaic | mapservices.weather.noaa.gov (ImageServer) | NOAA open; no API key | NOAA/NWS; rendered images, not values |
+| NWS gridded forecast | api.weather.gov | U.S. government work, public domain; User-Agent requested | NWS; no implied endorsement |
 | Argo floats | argo.ucsd.edu | freely redistributable | Standard Argo acknowledgment |
 
 What *is* in `data/tiles` after `make tiles` is a procedural shelf generated
@@ -87,6 +91,13 @@ table, the allowed/not-allowed boundary, and the empty retrieval-date column.
 │  s3://noaa-s102-pds                      S-102 (HDF5) surfaces      │
 │  s3://noaa-ocs-hydrodata                 Raw hydrographic surveys   │
 │  s3://noaa-nos-scuba-icesat2-pds         Satellite-derived bathy    │
+│                                                                     │
+│  LIVE HTTP (no key, no login) — polled by the running server        │
+│  ncss.hycom.org          surface currents (NCSS)                    │
+│  ndbc.noaa.gov           buoy observations (realtime2)              │
+│  mapservices.weather.noaa.gov  radar base reflectivity mosaic       │
+│  api.weather.gov         NWS gridded forecast + plain-language      │
+│  adsb.lol                live ADS-B positions                       │
 └──────────────────┬──────────────────────────────────────────────────┘
                    │
                    │  SNS new-object topic  ──►  SQS  ──►  ingest worker
@@ -110,6 +121,11 @@ table, the allowed/not-allowed boundary, and the empty retrieval-date column.
 │                              snapshot on failure, or always when    │
 │                              GULF_OCEAN_REFRESH=0 (air-gap)         │
 │    /api/ocean/buoys          snapshot only (404 until `make ocean`) │
+│    /api/weather/radar        NOAA reflectivity loop manifest;       │
+│                              refreshes every 5 m by default         │
+│    /api/weather/forecast     NWS gridded forecast + 7-day outlook;  │
+│                              refreshes hourly by default            │
+│    /api/weather/frames/*.png one rendered radar scan, immutable     │
 │    /api/aircraft             live ADS-B (adsb.lol; not a snapshot;  │
 │                              404 if GULF_AIRCRAFT=0)                │
 │    embedded static assets (single binary, no CDN)                   │
@@ -119,7 +135,11 @@ table, the allowed/not-allowed boundary, and the empty retrieval-date column.
 │  RENDER (three.js / WebGL2)                                         │
 │    tile-quadtree LOD  →  vertex shader height displacement          │
 │    fragment shader: hypsometric LUT + hillshade + contours          │
+│    overlays: radar sheet, procedural cloud/rain, HYCOM particles,   │
+│              NDBC station glyphs, ADS-B marks                       │
+│    one time axis: every layer declares the window it can speak for  │
 │    controls: exaggeration, depth range, contour interval, layers    │
+│    the whole view is mirrored into the URL hash and is shareable    │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -148,23 +168,46 @@ is the unit you copy onto a disconnected machine. See
 [ADR 0002](docs/adr/0002-go-tile-server-vs-static-tiles.md).
 
 **Air-gap as a constraint, not a stretch, and now an opt-out.** Terrain
-tiles have no outbound calls at serve time: seed tiles travel with the
-binary (local) or inside a Zarf tarball (cluster). The ocean overlay is
-no longer air-gapped by default. `GET /api/ocean/currents` is backed by
-a background goroutine that fetches HYCOM on a ~1 h jittered ticker
-(first run 15s after boot) and writes the result through to
-`data/ocean/` before publishing it; a fetch failure serves the last
-good stack instead of failing the request. Nothing on the HTTP request
-path itself calls out. `GULF_OCEAN_REFRESH=0` disables that ticker and
-restores the original property: `/api/ocean/currents` then serves only
-the on-disk snapshot, with no egress, same as `/api/ocean/manifest` and
-`/api/ocean/buoys`, which remain snapshot-only in every configuration
-(404 until `make ocean`). `GET /api/aircraft` is a second live path: the
+tiles have no outbound calls at serve time: the pyramid is baked into the
+serve image at `/data/tiles` (`deploy/Dockerfile`) or ships inside a Zarf
+tarball. It is never synthesised at deploy time — the tiles are a pure
+function of the vendored GEBCO clip, the vendored outlines and the AOI, so
+CI caches them on exactly those inputs and rebuilds only when one moves. The ocean overlay is
+no longer air-gapped by default. `GET /api/ocean/currents` and
+`GET /api/ocean/buoys` are each backed by a background goroutine —
+HYCOM on a ~1 h jittered ticker (first run 15s after boot), NDBC on a
+~10 m one (first run 20s after boot), matching how often each upstream
+actually republishes. Both write through to `data/ocean/` before
+publishing to an in-memory cache; a fetch failure serves the last good
+data instead of failing the request. Nothing on the HTTP request path
+itself calls out. `GULF_OCEAN_REFRESH=0` disables **both** tickers and
+restores the original property: those endpoints then serve only the
+on-disk snapshot, with no egress, same as `/api/ocean/manifest`, which
+remains snapshot-only in every configuration (404 until `make ocean`).
+The weather layers work the same way and are the third live path.
+`GET /api/weather/radar` and `GET /api/weather/forecast` are each backed by
+a background goroutine — the NOAA reflectivity mosaic on a ~5 m ticker, the
+NWS gridded forecast on a ~1 h one, first runs 25s and 35s after boot so a
+restart does not open every upstream at once. Radar frames are written
+under `data/weather/radar/` as ordinary PNGs and served straight off disk;
+`GULF_WEATHER_REFRESH=0` stops both tickers and leaves whatever
+`make weather` last wrote, with no egress.
+
+`GET /api/aircraft` is the fourth: the
 server polls adsb.lol (OpenSky in reserve) only while a client asks.
 `GULF_AIRCRAFT=0` returns 404 so an air-gap still serves terrain, and
-`GULF_OCEAN_REFRESH=0` alongside it removes the currents egress too.
-GDAL, SNS, S3, and NDBC exist only on ingest, which is not required to
-view already-built tiles.
+`GULF_OCEAN_REFRESH=0` and `GULF_WEATHER_REFRESH=0` alongside it remove the
+currents, buoy, radar and forecast egress too. With all three set to `0`
+the server makes no outbound request of any kind. GDAL, SNS, and S3 exist
+only on ingest, which is not required to view already-built tiles.
+
+**One caveat for the hardened chassis.** All four live layers write their
+snapshots through to disk before publishing. The image runs with
+`readOnlyRootFilesystem: true`, so `GULF_OCEAN_DIR` and `GULF_WEATHER_DIR`
+must name a writable mount; `deploy/k8s/deployment.yaml` supplies an
+`emptyDir` for each. Left at their defaults they resolve onto the read-only
+root, and the weather layers in particular do not degrade gracefully from
+that — radar cannot create its frame directory at all.
 
 The renderer is three.js / WebGL2 on a planar Web Mercator quad, not a
 WGS84 ellipsoid. Cesium is the documented stretch, not the current target.
@@ -190,10 +233,35 @@ Then open `http://127.0.0.1:8080`. Equivalent: `make run`.
 
 | Target | What it does today |
 |---|---|
-| `make tiles` | `go run ./cmd/tiler synth` → procedural PNG pyramid under `data/tiles` (z 6–11). No GDAL. No NOAA. |
+| `make tiles` | `go run ./cmd/tiler synth` → GEBCO-backed PNG pyramid under `data/tiles` (z 6–14, 34,267 tiles, ~195 MB). No GDAL. No NOAA. |
 | `make web` | `cd web && npm install && npm run build` → `web/dist` for embed |
 | `make server` | `go build` of `./cmd/server` → `./gulf-viewer` |
-| `make run` | the three above, then `./gulf-viewer` |
+| `make run` | the three above, then `./gulf-viewer` (reuses `data/tiles` when present) |
+| `make ocean` | one-shot seed of `data/ocean` (HYCOM currents + NDBC buoys). Needs `HYCOM_NCSS=<url>`. |
+| `make weather` | one-shot seed of `data/weather` (NOAA radar loop + NWS forecast). No key, no URL. |
+| `make gebco` | re-clip the vendored GEBCO grid to the AOI. Only needed when the AOI moves. |
+| `go run ./cmd/tiler aoi` | print the AOI; the shell pipelines read it from here rather than keeping copies |
+
+**Cut the first run short.** `make tiles` at the default `z 6–14` writes
+34,267 tiles, and z14 alone is 25,560 of them — three quarters of the work
+for the last level. `ZMIN`/`ZMAX` are Makefile variables, so a usable chart
+is seconds away rather than an hour:
+
+| Command | Tiles | Wall clock |
+|---|---|---|
+| `make tiles ZMAX=11` | 613 | ~6 s |
+| `make tiles ZMAX=12` | 2,287 | ~23 s |
+| `make tiles` (z 6–14) | 34,267 | tens of minutes |
+
+(Timings from a 12-core laptop; the tiler saturates every core it is given.)
+
+The viewer reads the available zoom range from `/api/manifest` and clamps
+its LOD to it, so a shallow pyramid is not a broken one — it simply stops
+adding detail sooner as you zoom in. To go deeper later, re-run `make tiles`
+with the higher `ZMAX`: it rewrites the whole range, so nothing is left
+half-built. Note that `make run` only checks whether `data/tiles/6` exists
+before deciding to build, so it will happily reuse a shallow pyramid — pass
+`ZMAX` to `make tiles` yourself when you want more depth.
 
 `make tiles`, `make web`, and `make server` all have implementations in
 this increment (`cmd/tiler`, `web/`, `cmd/server`). GDAL is optional and
@@ -294,6 +362,26 @@ guidance, seeker, or RCS model, and it is not a navigation product.
 - **GDAL is optional and local.** The checked-in tiler does not link
   GDAL. Reprojection, nodata fill, and `gdal2tiles.py` exist only as a
   planned operator path on a workstation that already has GDAL 3.8+.
+- **Radar is pictures, not values.** The frames are NOAA's colour-mapped
+  base-reflectivity rendering, fetched as PNGs. The chart can drape and loop
+  them, but there is no dBZ behind a pixel, so the inspector cannot report
+  one. Decoding MRMS GRIB2 would buy real values at a cost this increment
+  does not pay. A scan is typically ten to twenty minutes old by the time it
+  is drawn; the caption always names the scan time and its age.
+- **Clouds and rain are a rendering of a forecast, not observed sky.** The
+  shapes are procedural noise. NWS supplies a coarse lattice of gridpoints
+  over the AOI — sky cover, precipitation probability, wind — and that drives
+  deck thickness, drift and where rain falls. No individual cloud is a real
+  cloud. Where NWS published no value the deck is left empty rather than
+  drawn clear.
+- **The seven-day outlook is read on land.** `api.weather.gov` answers
+  "Marine Forecast Not Supported" for a point on the water, and the chart's
+  centre is water, so the plain-language strip is read at a fixed shore point
+  (Biloxi) and names it. Not a marine forecast, and not for navigation.
+- **Weather needs a writable directory.** Unlike the ocean layers, radar
+  cannot degrade to memory-only: it writes frame PNGs to disk and serves them
+  from there. On a read-only root with no volume it is unavailable, not
+  merely non-durable. See §3.
 - **Same-origin, no wildcard CORS.** The UI is served from the same
   binary that serves tiles. A second origin is opt-in via
   `GULF_CORS_ORIGIN` and is a single origin, not `*`.
@@ -315,12 +403,18 @@ gulf-seafloor-viewer/
 ├── docs/                      # present — architecture, provenance, threat, deploy, ADRs
 ├── cmd/
 │   ├── tiler/                 # present — synth only; GDAL path is scripts/
+│   ├── ocean/                 # present — one-shot `make ocean` seeder
+│   ├── weather/               # present — one-shot `make weather` seeder
 │   ├── ingest/                # planned — SQS consumer (Phase 6)
 │   └── server/                # present — tile + API server (Phase 3)
 ├── internal/
 │   ├── terrain/               # present — Mapbox terrain-RGB encode/decode
 │   ├── tiles/                 # present — slippy-map math, AOI, covering
 │   ├── server/                # present — HTTP handlers (not in the spec sketch; lives here)
+│   ├── ocean/                 # present — HYCOM NCSS + NDBC fetch/decode
+│   ├── weather/               # present — NOAA radar ingest + NWS gridded forecast
+│   ├── aircraft/              # present — ADS-B fetch/parse
+│   ├── shelf/                 # present — GEBCO clip, OSM outlines, depth model
 │   ├── s102/                  # planned — S-102 HDF5 reader (Phase 5)
 │   └── soundings/             # planned — CSV → spatial index → binary batches (Phase 4)
 ├── web/                       # present — Vite + three.js (Phase 2)
@@ -344,16 +438,71 @@ make tiles && make web && make server && ./gulf-viewer
 
 Open [http://127.0.0.1:8080](http://127.0.0.1:8080).
 
+**Serving.**
+
 | Variable | Default | Role |
 |---|---|---|
 | `GULF_ADDR` | `:8080` | listen address |
 | `GULF_TILE_DIR` | `data/tiles` | on-disk XYZ pyramid |
 | `GULF_WEB_DIR` | `web/dist` | SPA root if `index.html` is there; otherwise the binary embed |
 | `GULF_CORS_ORIGIN` | empty (same-origin only) | single allowed origin; `*` is ignored, never emitted |
-| `GULF_AIRCRAFT` | enabled unless `0` | `0` disables `GET /api/aircraft` (404). Live ADS-B; not required for tiles or ocean snapshots |
-| `GULF_OCEAN_REFRESH` | enabled unless `0` | `0` stops background HYCOM refresh; `/api/ocean/currents` then serves only the on-disk snapshot, with no outbound calls |
-| `GULF_HYCOM_URL` | `https://ncss.hycom.org/thredds/ncss/grid/GLBy0.08/latest` | NCSS base for the currents refresher |
+| `GULF_TILE_WORKERS` | `GOMAXPROCS` | ceiling on concurrent tile disk reads. Values `<= 0` fall back to the default |
 | `LOG_FORMAT` | `text` | `json` for a collector; anything else is text |
+
+**Snapshot directories.** Each live layer writes through to disk before
+publishing. Under `readOnlyRootFilesystem` these must name a writable mount
+— see the caveat in §3.
+
+| Variable | Default | Role |
+|---|---|---|
+| `GULF_OCEAN_DIR` | `data/ocean` | `currents.json`, `buoys.json`, `manifest.json` |
+| `GULF_WEATHER_DIR` | `data/weather` | `radar.json`, `forecast.json`, `radar/*.png` |
+
+**Ocean layers.**
+
+| Variable | Default | Role |
+|---|---|---|
+| `GULF_OCEAN_REFRESH` | enabled unless `0` | `0` stops both background refreshers (HYCOM currents and NDBC buoys); `/api/ocean/currents` and `/api/ocean/buoys` then serve only the on-disk snapshot, with no outbound calls |
+| `GULF_HYCOM_URL` | `https://ncss.hycom.org/thredds/ncss/grid/GLBy0.08/latest` | NCSS base for the currents refresher |
+| `GULF_NDBC_BASE` | `https://www.ndbc.noaa.gov` | site origin for the buoy refresher (station table + realtime2) |
+| `GULF_BUOY_REFRESH_EVERY` | `10m` | NDBC poll period, a Go duration. Matches how often realtime2 stdmet files are rewritten; an unparseable value falls back to the default |
+
+**Weather layers.**
+
+| Variable | Default | Role |
+|---|---|---|
+| `GULF_WEATHER_REFRESH` | enabled unless `0` | `0` stops both weather refreshers; `/api/weather/radar` and `/api/weather/forecast` then serve only what `make weather` wrote, with no outbound calls |
+| `GULF_RADAR_REFRESH_EVERY` | `5m` | radar poll period, a Go duration. The upstream republishes about every two minutes; an unparseable value falls back to the default |
+| `GULF_FORECAST_REFRESH_EVERY` | `1h` | NWS gridded-forecast poll period, a Go duration. One pass is ~15 gridpoint requests, so do not set this aggressively |
+
+**Aircraft.**
+
+| Variable | Default | Role |
+|---|---|---|
+| `GULF_AIRCRAFT` | enabled unless `0` | `0` disables `GET /api/aircraft` (404). Live ADS-B; not required for tiles, ocean, or weather |
+| `GULF_ADSBLOL_URL` | adsb.lol public API | origin for the primary ADS-B feed |
+| `GULF_OPENSKY_URL` | OpenSky states endpoint | origin for the reserve feed, used when adsb.lol fails |
+
+Setting `GULF_OCEAN_REFRESH=0`, `GULF_WEATHER_REFRESH=0` and
+`GULF_AIRCRAFT=0` together leaves a server that makes no outbound request of
+any kind.
+
+### Sharing a view
+
+The whole view — camera position, tilt, chart time, which layers are drawn,
+and the shading dials — is mirrored into the URL hash as you move, so a
+particular view can be bookmarked or sent to someone else and comes back the
+same:
+
+```
+http://127.0.0.1:8080/#v=1&c=-88.91,30.29,64000,11.4&t=1788489000000&l=radar,currents,buoys
+```
+
+`t=live` pins the chart to the wall clock; a millisecond timestamp pins it to
+a moment. A link can only switch a layer on where the server actually has
+it — a URL cannot conjure a snapshot that was never seeded. Values are
+range-checked on the way in, and anything malformed is dropped individually,
+so a link truncated by a chat client still restores the parts that survived.
 
 See [`docs/deployment.md`](docs/deployment.md).
 
@@ -377,3 +526,10 @@ GEBCO, USGS, Copernicus, HYCOM, and Argo each have their own
 acknowledgment rules; those are listed in
 [`docs/data-sources.md`](docs/data-sources.md) and apply only after those
 bytes are actually pulled.
+
+NWS/NOAA weather products (the base-reflectivity mosaic and the gridded
+forecast) are U.S. government works and carry the same rule as the rest:
+attribution is requested, endorsement must not be stated or implied, and the
+radar frames drawn here are NOAA's own rendering rather than derived values.
+ADS-B positions come from adsb.lol, with The OpenSky Network in reserve;
+neither endorses this viewer.

@@ -16,8 +16,30 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
+
+      # Formatting and vet ran only on developer machines until now, and a
+      # misformatted file had already reached main. These cost seconds.
+      - name: gofmt
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "::error::gofmt needed on:"
+            echo "$unformatted"
+            gofmt -d .
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: staticcheck
+        uses: dominikh/staticcheck-action@v1
+        with:
+          version: latest
+          install-go: false
+
       - name: Go test
-        run: go test ./...
+        run: go test -race ./...
 
   web-build:
     runs-on: ubuntu-latest
@@ -29,11 +51,44 @@ jobs:
           node-version: "24"
           cache: npm
           cache-dependency-path: web/package-lock.json
-      - name: npm ci && build
+      - name: npm ci
         working-directory: web
         run: |
           if [ -f package-lock.json ]; then npm ci; else npm install; fi
-          npm run build
+
+      # 12k lines of TypeScript went unlinted until now. oxlint rather than
+      # typescript-eslint: this tree is on TypeScript 7, and
+      # typescript-eslint's peer range still caps at <6.1, so a type-aware
+      # linter here would have to be force-installed against a compiler API
+      # it cannot parse. oxlint has no tsc coupling.
+      - name: Lint
+        working-directory: web
+        run: npm run lint
+
+      - name: Typecheck
+        working-directory: web
+        run: npm run typecheck
+
+      - name: Build
+        working-directory: web
+        run: npx vite build
+
+      # The viewer's suite covers the depth ramp, the shader/legend parity
+      # constants, the AOI, the place labels and the unit formatting. It ran
+      # only on developer machines until now: this job built the bundle and
+      # never executed a single one of them.
+      - name: npm test
+        working-directory: web
+        run: npm test
+
+      # The image job builds from a bare checkout, where web/dist does not
+      # exist, so deploy/Dockerfile silently fell back to the placeholder
+      # index.html and shipped an image without the real viewer.
+      - uses: actions/upload-artifact@v7
+        with:
+          name: web-dist
+          path: web/dist
+          retention-days: 1
 
   sbom-scan:
     runs-on: ubuntu-latest
@@ -55,11 +110,40 @@ jobs:
 
   image:
     runs-on: ubuntu-latest
+    needs: [web-build]
     permissions:
       contents: read
       packages: write
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: web-dist
+          path: web/dist
+
+      # The pyramid is a pure function of the vendored bathymetry, the vendored
+      # outlines, the AOI and the tiler itself, so it is cached on exactly those
+      # inputs and rebuilt only when one of them moves. data/tiles is gitignored,
+      # so without this the image ships an empty chart.
+      - name: Tile cache key
+        id: tilekey
+        run: |
+          echo "key=tiles-v1-${{ hashFiles('internal/shelf/gebco.bin', 'internal/shelf/outlines.json', 'internal/shelf/*.go', 'internal/tiles/*.go', 'internal/terrain/*.go', 'cmd/tiler/*.go') }}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache@v4
+        id: tiles
+        with:
+          path: data/tiles
+          key: ${{ steps.tilekey.outputs.key }}
+
+      - name: Synthesise tiles on a cache miss
+        if: steps.tiles.outputs.cache-hit != 'true'
+        run: make tiles
+
       - uses: docker/setup-buildx-action@v4
       - uses: docker/login-action@v4
         if: github.ref == 'refs/heads/main' && github.event_name == 'push' && secrets.GITHUB_TOKEN != ''

@@ -1,0 +1,31 @@
+# Build context for deploy/Dockerfile.
+#
+# data/tiles is deliberately NOT ignored: the image ships the pyramid so the
+# server never synthesises it at deploy time. Everything below is either
+# re-fetchable, rebuilt inside the image, or irrelevant to the binary.
+
+.git
+.github
+.gitignore
+
+# Rebuilt in the build stage; only web/dist is consumed.
+node_modules
+web/node_modules
+
+# Raw upstream dumps that gen_outlines.py simplifies into the vendored
+# outlines.json. Tens of megabytes, re-fetchable, and unused at runtime.
+internal/shelf/osm
+internal/shelf/__pycache__
+scripts/__pycache__
+
+# Runtime/working data. The ocean and weather snapshots are refreshed by the
+# server against a writable mount, not baked into the image.
+data/raw
+data/work
+data/ocean
+data/weather
+data/soundings
+
+# Local build outputs.
+gulf-viewer
+docs/superpowers

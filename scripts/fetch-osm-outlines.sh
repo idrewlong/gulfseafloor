@@ -17,9 +17,9 @@ UA="gulf-seafloor-viewer/0.2 (outline build; https://github.com/idrewlong/gulfse
 OVERPASS="${OVERPASS_URL:-https://overpass-api.de/api/interpreter}"
 NOMINATIM="${NOMINATIM_URL:-https://nominatim.openstreetmap.org/search}"
 
-# Generous margin around the AOI (-90.20,29.50,-87.45,30.78) so the stitched
+# Generous margin around the AOI (-91.36,28.50,-86.69,30.78) so the stitched
 # coastline runs past both ends and the mainland ring can close outside it.
-COAST_BBOX="29.40,-90.40,30.95,-87.30"
+COAST_BBOX="28.40,-91.60,30.95,-86.50"
 
 mkdir -p "$OSM_DIR"
 
@@ -51,6 +51,8 @@ fetch_nominatim ship "Ship Island, Harrison County, Mississippi"
 fetch_nominatim horn "Horn Island, Jackson County, Mississippi"
 fetch_nominatim petit "Petit Bois Island, Jackson County, Mississippi"
 fetch_nominatim dauphin "Dauphin Island, Mobile County, Alabama"
+fetch_nominatim grandisle "Grand Isle, Jefferson Parish, Louisiana"
+fetch_nominatim pointaufer "Point au Fer Island, Terrebonne Parish, Louisiana"
 fetch_nominatim deer "Deer Island, Biloxi, Mississippi"
 fetch_nominatim stlouis "Bay of Saint Louis, Mississippi"
 fetch_nominatim mobile "Mobile Bay, Alabama"

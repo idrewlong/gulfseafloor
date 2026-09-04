@@ -21,12 +21,17 @@ source raster
   → object store + manifest
 ```
 
-The AOI is the Mississippi Bight / Gulf shelf south of Long Beach,
-WGS84:
+The AOI is the north-central Gulf — Atchafalaya Bay to Pensacola, south
+past Southwest Pass to the shelf break and Mississippi Canyon, WGS84:
 
 ```
-west, south, east, north = -90.0, 28.5, -88.0, 30.4
+west, south, east, north = -91.36, 28.50, -86.69, 30.78
 ```
+
+The 1.78:1 aspect is deliberate: it matches a 16:9 viewport, which the
+cover-fit camera needs in order to show the full north–south extent.
+
+`internal/tiles.AOI` is the authority; this is a copy of it.
 
 `internal/tiles.AOI` is that box. `cmd/tiler synth` covers it at z 6–11
 with a procedural shelf so the rest of the stack can run with the

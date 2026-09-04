@@ -1,14 +1,26 @@
 import { bboxContains, type BBox } from '../geo.ts';
 import { type LabelCandidate } from '../ui/labelLayout.ts';
 import { setBuoyReadout } from '../ui/controls.ts';
+import type { DetailBlock } from '../ui/inspector.ts';
 import { barbSvg } from './windBarb.ts';
-import { BUOY_RANK, buoyReadout } from './oceanUi.ts';
+import { GLYPH_RADIUS, stationGlyphSvg, type StationKind } from './stationGlyph.ts';
+import {
+  BUOY_RANK,
+  buoyReadout,
+  freshnessOf,
+  obsAgeMs,
+  stationKindLabel,
+  stationKindOf,
+  stationRows,
+} from './oceanUi.ts';
 
 export const BUOY_ID_BASE = 1000;
 
 export type BuoyStation = {
   id: string;
   name?: string;
+  /** NDBC platform class (station_table.txt ttype). Absent in old snapshots. */
+  kind?: StationKind;
   lon: number;
   lat: number;
   obsTime?: string;
@@ -64,6 +76,10 @@ export function parseBuoysJson(raw: unknown): { validTime: string; stations: Buo
     if (name) {
       st.name = name;
     }
+    // Normalized rather than passed through: a snapshot written before the
+    // server sent `kind`, or one naming a platform type this build does not
+    // know, still has to resolve to a glyph.
+    st.kind = stationKindOf(s as { id: string; lon: number; lat: number; kind?: string });
     const obsTime = optionalString(s.obsTime);
     if (obsTime) {
       st.obsTime = obsTime;
@@ -161,29 +177,62 @@ export function engagedBuoyStation(marks: readonly EngagedBuoyMark[]): BuoyStati
   return focused;
 }
 
+/** The inspector block for a hovered station. */
+export function buoyDetail(station: BuoyStation, nowMs: number = Date.now()): DetailBlock {
+  return {
+    kicker: 'Station',
+    title: station.id,
+    ...(station.name ? { subtitle: station.name } : {}),
+    meta: stationKindLabel(station),
+    freshness: freshnessOf(obsAgeMs(station.obsTime, nowMs)),
+    rows: stationRows(station, nowMs),
+  };
+}
+
 function syncBuoyReadout(marks: readonly EngagedBuoyMark[]): void {
   const el = document.getElementById('readout');
   if (!el) {
     return;
   }
   const station = engagedBuoyStation(marks);
-  setBuoyReadout(el, station ? buoyReadout(station) : null);
+  // Built at hover time, not at mount time, so the age is current rather
+  // than frozen at whenever the layer was last remounted.
+  setBuoyReadout(el, station ? buoyDetail(station) : null);
 }
 
-function makeMark(station: BuoyStation): HTMLButtonElement {
+/**
+ * The mark's inner SVG: the platform glyph at the station position, plus the
+ * wind barb when the station reported wind. The glyph is unconditional —
+ * every station gets one — so a station that reports no wind is still
+ * visibly a station, and its platform class still reads.
+ */
+export function markSvgMarkup(station: BuoyStation): string {
+  const glyph = stationGlyphSvg(stationKindOf(station));
+  if (station.wdir == null || station.wspd == null) {
+    return glyph;
+  }
+  // The staff starts clear of the glyph so it does not strike through it.
+  return glyph + barbSvg(station.wdir, station.wspd, GLYPH_RADIUS);
+}
+
+function makeMark(station: BuoyStation, nowMs: number): HTMLButtonElement {
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.className = 'buoy-mark';
-  btn.setAttribute('aria-label', buoyReadout(station));
-  if (station.wdir != null && station.wspd != null) {
-    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    svg.setAttribute('viewBox', '0 0 40 40');
-    svg.setAttribute('aria-hidden', 'true');
-    svg.setAttribute('focusable', 'false');
-    svg.classList.add('buoy-barb');
-    svg.innerHTML = barbSvg(station.wdir, station.wspd);
-    btn.append(svg);
-  }
+  btn.setAttribute('aria-label', buoyReadout(station, nowMs));
+  // Drives the glyph's opacity and stroke in CSS. A station that last
+  // reported weeks ago must not read as a live observation.
+  btn.dataset.freshness = freshnessOf(obsAgeMs(station.obsTime, nowMs));
+  btn.dataset.kind = stationKindOf(station);
+
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', '0 0 40 40');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.setAttribute('focusable', 'false');
+  svg.classList.add('buoy-barb');
+  svg.innerHTML = markSvgMarkup(station);
+  btn.append(svg);
+
   const id = document.createElement('span');
   id.className = 'buoy-id';
   id.textContent = station.id;
@@ -192,10 +241,15 @@ function makeMark(station: BuoyStation): HTMLButtonElement {
   return btn;
 }
 
-export function mountBuoys(root: HTMLElement, stations: BuoyStation[], aoi?: BBox): BuoysHandle {
+export function mountBuoys(
+  root: HTMLElement,
+  stations: BuoyStation[],
+  aoi?: BBox,
+  nowMs: number = Date.now(),
+): BuoysHandle {
   root.replaceChildren();
   const buttons = stations.map((st) => {
-    const btn = makeMark(st);
+    const btn = makeMark(st, nowMs);
     root.append(btn);
     return btn;
   });

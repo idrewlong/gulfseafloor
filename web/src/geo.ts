@@ -1,12 +1,26 @@
-/** Mississippi Bight AOI, WGS84 — New Orleans to Orange Beach, south to 42354. */
+/**
+ * North-central Gulf AOI, WGS84 — Atchafalaya Bay to Pensacola, mainland south
+ * past Southwest Pass to the shelf break and the head of Mississippi Canyon.
+ *
+ * 452 x 254 km is 1.78:1, matching a 16:9 viewport. The camera cover-fits the
+ * chart, so this aspect is what lets the whole north-south extent — the canyon
+ * included — sit on screen at load without background showing at the sides.
+ */
 export const AOI = {
-  west: -90.2,
-  south: 29.5,
-  east: -87.45,
+  west: -91.36,
+  south: 28.5,
+  east: -86.69,
   north: 30.78,
 } as const;
 
-export const ORIGIN = { lon: -88.82, lat: 30.14 } as const;
+/**
+ * Anchor for the local-metres projection. lonLatToLocal applies a single
+ * cos(ORIGIN.lat) across the whole chart, so the skew is smallest when the
+ * anchor sits at the box centre: at 29.64 the north and south edges are both
+ * off by ~1.1%, where anchoring at the old 30.14 cost ~1.6% down at the delta.
+ * Every layer shares the transform, so this is chart shape, not registration.
+ */
+export const ORIGIN = { lon: -89.025, lat: 29.64 } as const;
 
 export const DEFAULT_MIN_ZOOM = 6;
 export const DEFAULT_MAX_ZOOM = 14;

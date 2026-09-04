@@ -23,6 +23,7 @@ var stationLoc = regexp.MustCompile(`([0-9.]+)\s*([NS])\s+([0-9.]+)\s*([EW])`)
 type TableRow struct {
 	ID   string
 	Name string
+	Kind StationKind
 	Lon  float64
 	Lat  float64
 }
@@ -96,7 +97,23 @@ func ParseStationTable(r io.Reader, margin BBox) ([]TableRow, error) {
 		if len(parts) > 4 {
 			name = parts[4]
 		}
-		rows = append(rows, TableRow{ID: parts[0], Name: name, Lon: lon, Lat: lat})
+		// Column 2 is ttype (see the header comment line of the file:
+		// #id|owner|ttype|hull|name|...). A short row has no ttype cell,
+		// which StationKindFromTType resolves to KindOther.
+		ttype := ""
+		if len(parts) > 2 {
+			ttype = parts[2]
+		}
+		rows = append(rows, TableRow{
+			// The table lists ids in lower case while realtime2 filenames are
+			// upper case. Normalize here so the id that reaches the viewer
+			// matches the one NDBC publishes observations under.
+			ID:   strings.ToUpper(parts[0]),
+			Name: name,
+			Kind: StationKindFromTType(ttype),
+			Lon:  lon,
+			Lat:  lat,
+		})
 	}
 	if err := sc.Err(); err != nil {
 		return nil, fmt.Errorf("ocean: ndbc: station table: %w", err)
