@@ -125,8 +125,9 @@ explicitly optional and local.
 
 The server opens files under `GULF_TILE_DIR` and returns bytes. It
 does not run GDAL. It does not fetch from S3 at request time in
-this increment. The request path itself never calls out — the one
-scheduled exception is described next.
+this increment. Egress is now a real part of this path rather than
+an absence: four scheduled upstreams and one request-path upstream,
+all described below, and all switchable off.
 
 ### Outbound egress: the currents refresher
 
@@ -143,13 +144,72 @@ becomes request latency.
 |---|---|---|
 | **T**ampering | A malicious or compromised `ncss.hycom.org` response — corrupt NetCDF, absurd velocities, a bbox outside the AOI. | Each per-step request is capped (`hycomBodyLimit`, 8 MiB) and parsed by the same `ParseHYCOM` path as `make ocean` — classic NetCDF-3 (`accept=netcdf`, what the refresher actually requests) with CSV parsing (`ParseHYCOMCSV`) kept as a fallback for that same entry point. A bbox check rejects a response that does not intersect the AOI. A parse or validation failure discards that step and keeps serving the prior in-memory stack; it is never written to disk half-parsed. |
 | **D**enial of service | NCSS is slow, hangs, or the network is unreachable. | `OceanClient` has a 90s timeout. Failure just logs (`slog.Warn`) and returns — the ticker's next jittered tick tries again; the currently served stack (last good fetch, or the on-disk snapshot from `make ocean`) is unaffected. There is no retry storm: one attempt per ~1 h tick, not per request. |
-| **I**nformation disclosure / **E**levation of privilege | Egress itself, in an environment meant to be air-gapped. | `GULF_OCEAN_REFRESH=0` is the opt-out: the ticker goroutine never starts, `/api/ocean/currents` serves only the on-disk snapshot, and the serve process makes zero outbound calls again, matching the pre-refresher air-gap property. A disconnected deployment that wants the original guarantee sets this. |
+| **I**nformation disclosure / **E**levation of privilege | Egress itself, in an environment meant to be air-gapped. | `GULF_OCEAN_REFRESH=0` is this layer's opt-out: the ticker goroutine never starts and `/api/ocean/currents` serves only the on-disk snapshot. It is **not sufficient on its own** — the radar, forecast and aircraft paths have their own switches. A disconnected deployment that wants the original zero-egress guarantee sets `GULF_OCEAN_REFRESH=0`, `GULF_WEATHER_REFRESH=0` and `GULF_AIRCRAFT=0` together. |
 
 Failure mode, stated plainly: a bad or unreachable HYCOM node makes
 `/api/ocean/currents` **stale**, not unavailable and not corrupted —
 the last validated stack (in memory, or on disk from a prior run)
 keeps serving. There is no code path where a failed refresh reaches
 a client.
+
+### The other three egress paths
+
+The currents refresher is no longer the only one. Four upstream families
+are reached by the serving binary, all unauthenticated, all on 443, none
+of them on the HTTP request path:
+
+| Layer | Upstream | Cadence | Off switch |
+|---|---|---|---|
+| Currents | `ncss.hycom.org` | ~1 h, first run 15s after boot | `GULF_OCEAN_REFRESH=0` |
+| Buoys | `www.ndbc.noaa.gov` | ~10 m, first run 20s after boot | `GULF_OCEAN_REFRESH=0` |
+| Radar | `mapservices.weather.noaa.gov` | ~5 m, first run 25s after boot | `GULF_WEATHER_REFRESH=0` |
+| Forecast | `api.weather.gov` | ~1 h, first run 35s after boot | `GULF_WEATHER_REFRESH=0` |
+| Aircraft | `adsb.lol`, OpenSky in reserve | only while a client asks | `GULF_AIRCRAFT=0` |
+
+The first runs are deliberately staggered so a crash-loop does not open
+every upstream in the same instant, and every ticker is jittered ±10% so
+restarts do not synchronise.
+
+The four ticker-based layers share the currents properties exactly: one
+attempt per tick rather than per request, a failure that logs and serves
+the last good data, and an off switch that stops the goroutine rather
+than merely hiding the endpoint.
+
+**Aircraft is the exception and is worth stating separately, because it
+is the one upstream reached from the HTTP request path.** There is no
+ticker: `handleAircraft` fetches on demand, bounded by a 10s cache TTL
+(`AircraftCacheTTL`), a `singleflight` group that collapses concurrent
+misses to one upstream call, and a 6s client timeout
+(`aircraft.FetchTimeout`). A prior success may mask a feed failure for
+60s (`AircraftStaleFor`). So a client *can* cause egress here — at most
+one call per 10s across all clients — and a hung adsb.lol can add up to
+6s to one request rather than to all of them. `GULF_AIRCRAFT=0` returns
+404 before any of that runs, so the off switch still prevents the egress
+entirely; it simply does so by refusing the endpoint rather than by not
+starting a goroutine.
+
+With all three variables set to `0` the serving process makes zero
+outbound calls, which is the original air-gap property.
+
+### Untrusted input on the serve path
+
+This is the part that changed most. The serving binary now parses bytes
+it did not produce, from five upstreams, in-process:
+
+| | Threat | Design response |
+|---|---|---|
+| **T**ampering | A compromised or spoofed NOAA/NWS/ADS-B endpoint returns malformed NetCDF, JSON, or PNG. | Every fetch is size-capped before parsing (`hycomBodyLimit` 8 MiB, `maxFrameSize` 8 MiB per radar frame, `maxGridpointSize` 4 MiB per NWS gridpoint, `maxMetaSize` 1 MiB for service metadata). Decoding is Go's standard library plus a pure-Go NetCDF reader — no cgo, no GDAL, no image decode in the serve path at all for radar. A parse failure discards that item and keeps the prior data. |
+| **T**ampering | A radar frame is a PNG fetched from NOAA. | The server never decodes it: the bytes are stored and later served verbatim, opaque, to a browser whose image decoder is hardened and sandboxed. That is deliberate — a crafted frame is therefore not a serve-process code-execution surface. It remains a *client* surface, which is what the CSP (`img-src 'self' data: blob:`) covers. Note the contrast with `/api/depth`, which *does* `png.Decode` (`internal/server/depth.go`) — but only terrain tiles, which this project generated and baked into the image, not bytes from a third party. |
+| **T**ampering | A radar frame filename from the manifest is joined to a directory path. | Frame names are matched against `^\d{8}T\d{6}Z\.png$` rather than cleaned. Reject-what-is-not-obviously-safe leaves no room for a traversal that survives normalisation. |
+| **D**enial of service | An upstream returns an enormous or endless body, or hangs. | Size caps above plus a 90s client timeout. A radar pass that loses individual frames keeps the ones it got; losing every frame is an error that writes no manifest, so the manifest on disk never claims images that are not there. |
+| **D**enial of service | Disk fills with radar frames on a long-running air-gapped node. | Frames the manifest no longer references are pruned each pass, keeping one further loop-length so a client one manifest behind still resolves. A file the package did not write is left alone rather than deleted. |
+| **I**nformation disclosure | The stale-window check. | The NOAA `eventdriven` service has been observed advertising a window days out of date; its frames still render, so nothing downstream could tell they were history. `DefaultRadarMaxAge` refuses a window older than three hours and leaves what is on disk alone, rather than presenting stale weather as current. |
+
+Note what is *not* here: no credentials, no API keys, and no request-path
+egress, so none of these upstreams can be used to pivot into an
+authenticated context. The worst outcome of a fully compromised upstream
+is wrong or stale data on a chart that already says, in the UI and in this
+repo, that it is not for navigation.
 
 ### STRIDE — serve
 

@@ -23,11 +23,23 @@ or image that builds tiles.
 > denied. Do not read this section as evidence that an air-gap
 > install was tested.
 
-What *has* been run in this increment: `go test ./...` for
-`internal/terrain` and `internal/tiles`, and `go run ./cmd/tiler
-synth` (via `make tiles`) on a connected developer machine. The
-container image, cosign signing, SBOM gate, and Kubernetes
-manifests are Phase 7.
+What *has* been run in this increment, on a connected developer
+machine and in CI:
+
+- `go test -race ./...` (12 packages, 9 of which carry tests), plus
+  `gofmt`, `go vet` and `staticcheck` as blocking CI steps.
+- The web suite (`npm test`), `tsc --noEmit`, and `oxlint`.
+- `go run ./cmd/tiler synth` (via `make tiles`).
+- The server driven in a headless browser at four viewport widths,
+  checking the layer panel, the shareable view-state hash and the
+  responsive layout.
+- A `deploy/policy` test that parses the real
+  `deploy/k8s/deployment.yaml` and fails if a directory the server
+  writes to stops resolving to a declared volume.
+
+What has **not** been run: the container image build in CI, cosign
+signing, the SBOM gate, a Zarf package create or deploy, and any
+install on a cluster without an internet route. Those are Phase 7.
 
 ---
 
@@ -41,10 +53,56 @@ Read by `cmd/server` (Phase 3). Defaults are the local-dev values.
 | `GULF_TILE_DIR` | `data/tiles` | Root of the XYZ pyramid (`$GULF_TILE_DIR/{z}/{x}/{y}.png`). Must be a directory; the process does not fetch NOAA data. |
 | `GULF_WEB_DIR` | `web/dist` | SPA root used when `index.html` exists there. Otherwise the binary falls back to `//go:embed` of `cmd/server/assets`. |
 | `GULF_CORS_ORIGIN` | empty | If set to a single origin, echoed as `Access-Control-Allow-Origin`. Empty means no CORS headers. `*` is ignored and never emitted. |
+| `GULF_TILE_WORKERS` | `GOMAXPROCS` | Bounds concurrent tile disk I/O. Not a CORS or bind knob. Values `<= 0` fall back to the default. |
 | `LOG_FORMAT` | `text` | `json` selects `slog` JSON; any other value is text. |
 
-`GULF_TILE_WORKERS` (optional, default `GOMAXPROCS`) bounds concurrent
-tile disk I/O. It is not a CORS or bind knob.
+### Snapshot directories
+
+Every live layer writes its snapshot through to disk before publishing it
+in memory. **Under `readOnlyRootFilesystem: true` these must point at a
+writable mount.** Left at their defaults in the hardened image they resolve
+onto the read-only root, and the two families do not fail the same way:
+
+- Ocean degrades gracefully. The fetch still reaches the in-memory cache and
+  is served; only durability across a restart is lost.
+- Weather does not. Radar cannot create its frame directory at all, so the
+  layer reports itself permanently unavailable in the pod.
+
+`deploy/k8s/deployment.yaml` supplies an `emptyDir` for each, and
+`deploy/policy` has a test that fails if either variable stops resolving to
+a declared volume.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `GULF_OCEAN_DIR` | `data/ocean` | `currents.json`, `buoys.json`, `manifest.json`. |
+| `GULF_WEATHER_DIR` | `data/weather` | `radar.json`, `forecast.json`, and the frame directory `radar/*.png`. |
+
+### Live layers
+
+Each of these is off with `0` and on otherwise. Setting all three to `0`
+leaves a server that makes no outbound request of any kind.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `GULF_OCEAN_REFRESH` | on | HYCOM currents (~1 h) and NDBC buoys (~10 m) background refreshers. |
+| `GULF_WEATHER_REFRESH` | on | NOAA radar (~5 m) and NWS gridded forecast (~1 h) background refreshers. |
+| `GULF_AIRCRAFT` | on | `GET /api/aircraft`; `0` returns 404. Live ADS-B, polled only while a client asks. |
+
+Upstream overrides and cadences, all optional:
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `GULF_HYCOM_URL` | `ncss.hycom.org/.../GLBy0.08/latest` | NCSS base for the currents refresher. |
+| `GULF_NDBC_BASE` | `https://www.ndbc.noaa.gov` | Station table + `realtime2` origin. |
+| `GULF_BUOY_REFRESH_EVERY` | `10m` | Go duration. Matches how often `realtime2` is rewritten. |
+| `GULF_RADAR_REFRESH_EVERY` | `5m` | Go duration. Upstream republishes about every two minutes. |
+| `GULF_FORECAST_REFRESH_EVERY` | `1h` | Go duration. One pass is ~15 gridpoint requests — do not set this aggressively. |
+| `GULF_ADSBLOL_URL` | adsb.lol public API | Primary ADS-B feed. |
+| `GULF_OPENSKY_URL` | OpenSky states endpoint | Reserve feed, used when adsb.lol fails. |
+
+An unparseable duration logs a warning and falls back to the default rather
+than failing startup: a typo in one tuning knob must not keep the viewer
+from booting.
 
 ---
 
@@ -156,12 +214,27 @@ Also:
 - Resource requests and limits. Serve is memory-light (mapped PNGs);
   ingest is not — cap it so a large raster cannot evict the node.
 - Read-only tile volume for serve (`emptyDir` is the wrong default
-  if you already have a seed set).
+  if you already have a seed set — a mount over `/data/tiles` hides
+  the pyramid baked into the image, and once did exactly that).
+- Writable volumes for `GULF_OCEAN_DIR` and `GULF_WEATHER_DIR`. These
+  are the opposite case to the tile pyramid: the image carries no
+  snapshot for either, so there is nothing for a mount to mask, and
+  the refreshers need somewhere to write. See "Snapshot directories"
+  above for what breaks without them.
 - No `hostNetwork`, no `privileged`, no extra projected service-
   account tokens the process does not use.
 - Network policy: serve receives 8080 from the ingress or in-cluster
-  clients and has no egress. Ingest egress is the source bucket and
-  the tile bucket only, or none if fetch is split out.
+  clients. **Serve is no longer egress-free by default.** With the
+  live layers on it reaches `ncss.hycom.org`, `www.ndbc.noaa.gov`,
+  `mapservices.weather.noaa.gov`, `api.weather.gov` and `adsb.lol`
+  on 443. Either allow those egress rules explicitly, or set
+  `GULF_OCEAN_REFRESH=0`, `GULF_WEATHER_REFRESH=0` and
+  `GULF_AIRCRAFT=0` and keep a deny-all egress policy — which is the
+  configuration a disconnected cluster wants anyway. Do not write a
+  deny-all egress policy while leaving the refreshers on: the layers
+  will not fail loudly, they will quietly serve whatever snapshot was
+  seeded and log a warning per tick. Ingest egress is the source
+  bucket and the tile bucket only, or none if fetch is split out.
 - Probes: `/healthz` (liveness), `/readyz` (readiness — tile dir
   present, embed FS readable).
 - Admission: OPA/Gatekeeper constraints that *reject* a workload

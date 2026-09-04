@@ -117,8 +117,52 @@ a format no ordinary tile proxy understands. A PNG is inspectable with
 | `GET /soundings/{z}/{x}/{y}` | binary point batch (Phase 4) |
 | `GET /api/depth?lat=&lon=` | point sample |
 | `GET /api/manifest` | regions, extents, stats, synthetic flag |
+| `GET /api/ocean/manifest` | ocean snapshot inventory (snapshot only) |
+| `GET /api/ocean/currents` | HYCOM surface-current forecast stack |
+| `GET /api/ocean/buoys` | NDBC stations and their last observation |
+| `GET /api/weather/radar` | NOAA reflectivity loop manifest |
+| `GET /api/weather/frames/{t}.png` | one rendered radar scan, immutable |
+| `GET /api/weather/forecast` | NWS gridded forecast + plain-language outlook |
+| `GET /api/aircraft` | live ADS-B positions |
 | `GET /healthz`, `GET /readyz` | liveness / readiness |
 | `GET /` | embedded SPA |
+
+### The live layers
+
+Everything above the health probes is a static read except the live
+layers. Four of the five share one shape: a background goroutine on its
+own ticker fetches, validates, writes through to disk, and publishes into
+an in-memory cache, and the request path only ever reads that cache or
+falls back to the on-disk snapshot. For those four nothing fires on the
+request path, so a stalled upstream cannot become request latency.
+
+Aircraft is the exception. It has no ticker and no snapshot: it fetches
+on demand behind a 10s cache and a `singleflight` group, with a 6s client
+timeout, because a position report is worthless by the time a ticker would
+have refreshed it. That is the one place an upstream sits on the request
+path, and it is bounded rather than unbounded — at most one upstream call
+per 10s across all clients.
+
+The caches are one type (`internal/server/etagcache.go`) whose ETag is the
+content hash, so a refresh that fetched identical bytes keeps its tag and
+clients stay on their 304s. The buoys layer keeps its own type because the
+currents write-through needs its decoded struct published atomically
+alongside the bytes.
+
+Write-through failure is not fatal to serving, with one exception. The
+ocean and forecast layers publish to the cache regardless — a fetch that
+succeeded is served even if the disk is read-only, and only durability
+across a restart is lost. Radar is the exception because it is not
+JSON-in-memory: it writes frame PNGs to a directory and serves them from
+there, so an unwritable `GULF_WEATHER_DIR` makes the layer unavailable
+rather than merely non-durable. See
+[`deployment.md`](deployment.md#snapshot-directories).
+
+Each layer also declares, to the client, the time window it can honestly
+speak for. Currents are a forecast and reach hours ahead; buoy and
+aircraft reports are observations at one instant. Move the chart's clock
+outside a layer's window and that layer stops drawing rather than being
+redrawn under a timestamp it cannot support.
 
 `cmd/server` embeds `all:assets` as a fallback SPA. Locally, if
 `GULF_WEB_DIR` (default `web/dist`) contains `index.html`, that
@@ -234,11 +278,18 @@ quantized-mesh terrain is the Cesium stretch, not a toggle.
 [tile store]          immutable {z}/{x}/{y}.png + manifest
         │
         ▼
-[serve image]         static Go, no GDAL, no egress
-        │
+[serve image]         static Go, no GDAL; egress only to the live-layer
+        │             upstreams, and none at all with the three
+        │             refresh switches set to 0
         ▼
 [browser]             WebGL2, same origin
 ```
+
+The serve image was egress-free by construction until the live layers
+landed. It is now egress-free by *configuration*:
+`GULF_OCEAN_REFRESH=0`, `GULF_WEATHER_REFRESH=0` and `GULF_AIRCRAFT=0`
+together restore the original property. Any one of them alone does not —
+see [`threat-model.md`](threat-model.md) for the full list of upstreams.
 
 Ingest and serve do not share a container. GDAL's CVE history is
 confined to the worker that must parse rasters
