@@ -68,8 +68,22 @@
 
         <!-- One ruled block, divided by hairlines. A chart's title block, not
              a stack of panels: nothing inside gets a border of its own. -->
-        <div class="block">
+        <div class="block" id="chart-block">
           <section id="timeline" class="block-time" aria-label="Chart time" hidden></section>
+
+          <!-- Narrow viewports only: on a phone the controls are two thirds
+               of the screen, and the chart is the point. Collapsed by
+               default there, absent entirely above the breakpoint. -->
+          <button
+            type="button"
+            id="block-toggle"
+            class="block-toggle"
+            aria-expanded="true"
+            aria-controls="controls"
+          >
+            <span class="block-toggle-label">Controls</span>
+            <span class="block-toggle-mark" aria-hidden="true"></span>
+          </button>
 
           <div class="block-body">
             <aside

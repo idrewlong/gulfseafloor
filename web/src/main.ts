@@ -61,6 +61,7 @@ import {
 } from './viewState';
 import {
   mountAbout,
+  mountBlockToggle,
   mountControls,
   mountNavHelp,
   setReadout,
@@ -836,6 +837,14 @@ async function start(): Promise<void> {
 
   mountNavHelp(navHelp, navHelpToggle);
   mountAbout(about, aboutToggle);
+  // Matches the `max-width: 820px` breakpoint in style.css that reveals the
+  // button and scopes the collapse.
+  const NARROW_QUERY = '(max-width: 820px)';
+  mountBlockToggle(
+    requireEl<HTMLElement>('chart-block'),
+    requireEl<HTMLButtonElement>('block-toggle'),
+    () => window.matchMedia(NARROW_QUERY).matches,
+  );
 
   /*
    * Mirror the view into the URL so it can be shared or bookmarked.

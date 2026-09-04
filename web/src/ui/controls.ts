@@ -291,3 +291,33 @@ export function setStatus(el: HTMLElement, message: string | null, warn = false)
   el.textContent = message ?? '';
   el.classList.toggle('is-warn', warn);
 }
+
+/**
+ * The controls disclosure, for narrow viewports.
+ *
+ * Only meaningful below the CSS breakpoint that hides the button: above it
+ * the panel is always open and this is inert. The collapsed state is applied
+ * to the block, not the form, because the CSS that hides the controls is
+ * scoped to the breakpoint — so widening the window reveals them again
+ * without the reader having to find the button.
+ *
+ * `narrow` is injected rather than read from `window` here so the behaviour
+ * is testable without a DOM matchMedia.
+ */
+export function mountBlockToggle(
+  block: HTMLElement,
+  toggle: HTMLButtonElement,
+  narrow: () => boolean,
+): void {
+  const apply = (collapsed: boolean): void => {
+    block.classList.toggle('is-collapsed', collapsed);
+    toggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+  };
+
+  // Start collapsed on a phone-sized viewport and open everywhere else.
+  apply(narrow());
+
+  toggle.addEventListener('click', () => {
+    apply(!block.classList.contains('is-collapsed'));
+  });
+}
