@@ -81,6 +81,12 @@ body {
   background: #071018;
 }
 
+/* Contributes the `main` landmark without contributing a box: #terrain sizes
+   against #app (height:100%) and the overlays position against it. */
+.chart-main {
+  display: contents;
+}
+
 #terrain {
   display: block;
   width: 100%;
@@ -1241,26 +1247,34 @@ body {
   min-width: 0;
 }
 
+/*
+ * Row gaps here were 1px, which put neighbouring checkboxes 13px apart and
+ * failed WCAG 2.2 target size (2.5.8): a 12px control needs either a 24px box
+ * or 24px of clear space around it. The controls stay visually small — this is
+ * chart furniture, not a form — and earn the spacing instead.
+ */
 .opt-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 1px 14px;
+  gap: 10px 14px;
 }
 
 .opt-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 1px 12px;
+  gap: 10px 12px;
 }
 
 .opt-grid label,
 .opt-row label {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   min-width: 0;
   white-space: nowrap;
   font-size: 12px;
+  /* The label is the real hit area — it is what a finger lands on. */
+  min-height: 24px;
 }
 
 .dial-row {
@@ -1287,8 +1301,8 @@ body {
 .block input[type='checkbox'],
 .block input[type='radio'] {
   accent-color: var(--ink);
-  width: 12px;
-  height: 12px;
+  width: 14px;
+  height: 14px;
   margin: 0;
   flex: none;
 }
@@ -1310,8 +1324,9 @@ body {
 }
 
 /*
- * The controls disclosure. Above the narrow breakpoint the panel is always
- * open and the button does not exist; there is room for both.
+ * The controls disclosure is a narrow-viewport affordance only. On a wide
+ * screen there is room for the chart and the full panel at once, so the
+ * button does not exist at all. See the 1279px block further down.
  */
 .block-toggle {
   display: none;
@@ -1336,13 +1351,18 @@ body {
     border-top: 1px solid var(--hair);
   }
 
-  /*
-   * On a phone the expanded panel is roughly two thirds of the viewport,
-   * which leaves a strip of chart too short to read. The controls collapse
-   * behind this button and start collapsed; the timeline, the inspector and
-   * the source note stay put, because those are the instrument and the
-   * chart's provenance rather than settings.
-   */
+}
+
+/*
+ * The controls disclosure.
+ *
+ * Available wherever the panel starts crowding the chart, which is the same
+ * width at which the controls go two-column. It only *starts* collapsed on a
+ * phone (see main.ts, which matches the 820px query below) — on a small
+ * laptop the controls are still there on load, and the reader can fold them
+ * away if they would rather have the chart.
+ */
+@media (max-width: 1279px) {
   .block-toggle {
     display: flex;
     align-items: center;
@@ -1389,7 +1409,9 @@ body {
   .block.is-collapsed .block-controls {
     display: none;
   }
+}
 
+@media (max-width: 820px) {
   /*
    * Seven day columns share about 180px here, so the outlook's numbers
    * collide into a smear. The day names still work as a scale at one letter

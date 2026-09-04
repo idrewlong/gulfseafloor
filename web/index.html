@@ -13,12 +13,6 @@
   <body>
     <a class="skip-link" href="#controls">Skip to controls</a>
     <div id="app">
-      <canvas
-        id="terrain"
-        tabindex="0"
-        aria-label="Bathymetric terrain of the north-central Gulf. Drag to pan, scroll to zoom, right-drag to tilt, or use arrow keys."
-      ></canvas>
-
       <header class="chart-head">
         <div class="chart-head-text">
           <h1>Gulf Seafloor Viewer</h1>
@@ -57,6 +51,18 @@
           </button>
         </div>
       </header>
+
+      <!-- The chart and its furniture. `display: contents` in the stylesheet,
+           so this contributes the landmark and nothing else: #terrain sizes
+           against #app with height:100%, and the absolutely positioned
+           overlays resolve against #app too. A wrapper with a box of its own
+           would break both. -->
+      <main id="chart" class="chart-main" aria-label="Bathymetric chart">
+      <canvas
+        id="terrain"
+        tabindex="0"
+        aria-label="Bathymetric terrain of the north-central Gulf. Drag to pan, scroll to zoom, right-drag to tilt, or use arrow keys."
+      ></canvas>
 
       <aside id="legend" class="legend" aria-label="Hypsometric depth scale"></aside>
 
@@ -164,6 +170,7 @@
           </p>
         </div>
       </div>
+      </main>
 
       <dialog id="about" class="about">
         <form method="dialog">
