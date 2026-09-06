@@ -58,34 +58,28 @@ Read by `cmd/server` (Phase 3). Defaults are the local-dev values.
 
 ### Snapshot directories
 
-Every live layer writes its snapshot through to disk before publishing it
-in memory. **Under `readOnlyRootFilesystem: true` these must point at a
-writable mount.** Left at their defaults in the hardened image they resolve
-onto the read-only root, and the two families do not fail the same way:
+The ocean layers write their snapshot through to disk before publishing it
+in memory. **Under `readOnlyRootFilesystem: true` this must point at a
+writable mount.** Left at its default in the hardened image it resolves onto
+the read-only root; the layer then degrades gracefully — the fetch still
+reaches the in-memory cache and is served, and only durability across a
+restart is lost.
 
-- Ocean degrades gracefully. The fetch still reaches the in-memory cache and
-  is served; only durability across a restart is lost.
-- Weather does not. Radar cannot create its frame directory at all, so the
-  layer reports itself permanently unavailable in the pod.
-
-`deploy/k8s/deployment.yaml` supplies an `emptyDir` for each, and
-`deploy/policy` has a test that fails if either variable stops resolving to
-a declared volume.
+`deploy/k8s/deployment.yaml` supplies an `emptyDir`, and `deploy/policy` has
+a test that fails if the variable stops resolving to a declared volume.
 
 | Variable | Default | Meaning |
 |---|---|---|
 | `GULF_OCEAN_DIR` | `data/ocean` | `currents.json`, `buoys.json`, `manifest.json`. |
-| `GULF_WEATHER_DIR` | `data/weather` | `radar.json`, `forecast.json`, and the frame directory `radar/*.png`. |
 
 ### Live layers
 
-Each of these is off with `0` and on otherwise. Setting all three to `0`
-leaves a server that makes no outbound request of any kind.
+Each of these is off with `0` and on otherwise. Setting both to `0` leaves a
+server that makes no outbound request of any kind.
 
 | Variable | Default | Meaning |
 |---|---|---|
 | `GULF_OCEAN_REFRESH` | on | HYCOM currents (~1 h) and NDBC buoys (~10 m) background refreshers. |
-| `GULF_WEATHER_REFRESH` | on | NOAA radar (~5 m) and NWS gridded forecast (~1 h) background refreshers. |
 | `GULF_AIRCRAFT` | on | `GET /api/aircraft`; `0` returns 404. Live ADS-B, polled only while a client asks. |
 
 Upstream overrides and cadences, all optional:
@@ -95,8 +89,6 @@ Upstream overrides and cadences, all optional:
 | `GULF_HYCOM_URL` | `ncss.hycom.org/.../GLBy0.08/latest` | NCSS base for the currents refresher. |
 | `GULF_NDBC_BASE` | `https://www.ndbc.noaa.gov` | Station table + `realtime2` origin. |
 | `GULF_BUOY_REFRESH_EVERY` | `10m` | Go duration. Matches how often `realtime2` is rewritten. |
-| `GULF_RADAR_REFRESH_EVERY` | `5m` | Go duration. Upstream republishes about every two minutes. |
-| `GULF_FORECAST_REFRESH_EVERY` | `1h` | Go duration. One pass is ~15 gridpoint requests — do not set this aggressively. |
 | `GULF_ADSBLOL_URL` | adsb.lol public API | Primary ADS-B feed. |
 | `GULF_OPENSKY_URL` | OpenSky states endpoint | Reserve feed, used when adsb.lol fails. |
 
@@ -216,20 +208,18 @@ Also:
 - Read-only tile volume for serve (`emptyDir` is the wrong default
   if you already have a seed set — a mount over `/data/tiles` hides
   the pyramid baked into the image, and once did exactly that).
-- Writable volumes for `GULF_OCEAN_DIR` and `GULF_WEATHER_DIR`. These
-  are the opposite case to the tile pyramid: the image carries no
-  snapshot for either, so there is nothing for a mount to mask, and
-  the refreshers need somewhere to write. See "Snapshot directories"
-  above for what breaks without them.
+- A writable volume for `GULF_OCEAN_DIR`. This is the opposite case to
+  the tile pyramid: the image carries no snapshot, so there is nothing
+  for a mount to mask, and the refreshers need somewhere to write. See
+  "Snapshot directories" above for what breaks without it.
 - No `hostNetwork`, no `privileged`, no extra projected service-
   account tokens the process does not use.
 - Network policy: serve receives 8080 from the ingress or in-cluster
   clients. **Serve is no longer egress-free by default.** With the
-  live layers on it reaches `ncss.hycom.org`, `www.ndbc.noaa.gov`,
-  `mapservices.weather.noaa.gov`, `api.weather.gov` and `adsb.lol`
-  on 443. Either allow those egress rules explicitly, or set
-  `GULF_OCEAN_REFRESH=0`, `GULF_WEATHER_REFRESH=0` and
-  `GULF_AIRCRAFT=0` and keep a deny-all egress policy — which is the
+  live layers on it reaches `ncss.hycom.org`, `www.ndbc.noaa.gov`
+  and `adsb.lol` on 443. Either allow those egress rules explicitly,
+  or set `GULF_OCEAN_REFRESH=0` and `GULF_AIRCRAFT=0` and keep a
+  deny-all egress policy — which is the
   configuration a disconnected cluster wants anyway. Do not write a
   deny-all egress policy while leaving the refreshers on: the layers
   will not fail loudly, they will quietly serve whatever snapshot was

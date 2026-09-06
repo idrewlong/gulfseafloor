@@ -9,9 +9,6 @@ export type ViewerControls = {
   contourInterval: number;
   sunAzimuth: number;
   sunAltitude: number;
-  radar: boolean;
-  /** Procedural cloud deck, cloud shadow and rain, driven by the forecast. */
-  sky: boolean;
   currents: boolean;
   buoys: boolean;
   aircraft: boolean;
@@ -72,8 +69,6 @@ export function mountControls(
     contourInput.checked = true;
   }
   for (const [name, on] of [
-    ['radar', initial.radar],
-    ['sky', initial.sky],
     ['currents', initial.currents],
     ['buoys', initial.buoys],
     ['aircraft', initial.aircraft],
@@ -100,8 +95,6 @@ export function mountControls(
       contourInterval: Number(checked?.value ?? 0),
       sunAzimuth: Number(azimuth.value),
       sunAltitude: Number(altitude.value),
-      radar: on('radar'),
-      sky: on('sky'),
       currents: on('currents'),
       buoys: on('buoys'),
       aircraft: on('aircraft'),

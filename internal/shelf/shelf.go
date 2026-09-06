@@ -68,6 +68,8 @@ var (
 type fields struct {
 	mainland    *ringIndex
 	islands     []*ringIndex
+	marsh       *ringSet
+	marshShore  *segIndex
 	bays        []*ringIndex
 	coast       *segIndex
 	islandShore *segIndex
@@ -93,6 +95,8 @@ func indexed() *fields {
 			channels:    newSegIndex([][][]float64{gulfportChannel, pascagoulaChannel, mobileChannel}),
 			rivers:      newSegIndex(rivers),
 			islandShore: newSegIndex(islandShoreLines(isl)),
+			marsh:       newRingSet(o.Marsh),
+			marshShore:  newSegIndex(islandShoreLines(o.Marsh)),
 		}
 		for _, ring := range isl {
 			f.islands = append(f.islands, newRingIndex(ring))
@@ -180,6 +184,13 @@ func Sample(lon, lat float64) float64 {
 		}
 	}
 
+	// Unnamed marsh islets, west of the delta mostly. Land, but a metre of it:
+	// these are not the barrier chain and must not get its dune ridge.
+	if f.marsh.contains(lon, lat) {
+		inland := f.marshShore.nearest(lon, lat)
+		return marshHeight(inland) + ripples*0.1
+	}
+
 	inBay := false
 	for _, bay := range f.bays {
 		if bay.contains(lon, lat) {
@@ -262,15 +273,34 @@ func Sample(lon, lat float64) float64 {
 	if depth > -0.4 {
 		depth = -0.4
 	}
-	if depth < -85 {
-		depth = -85
-	}
+	// No deep floor. There used to be a `depth = -85` clamp here, from when
+	// this function was wholly procedural and needed a bottom to keep the
+	// generated ramp sane. Once GEBCO started owning the open shelf above,
+	// that clamp was truncating real bathymetry: 38% of the water in the AOI
+	// is deeper than 85 m, running to -2506 m at the head of the Mississippi
+	// Canyon in the south-east corner, and all of it was being flattened onto
+	// one plate. It also left the renderer's -2500 m depth window with data in
+	// only the top 4% of its range, so the hypsometric ramp had almost nothing
+	// to say. terrain.Encode clamps to the representable terrain-RGB range, so
+	// a sanity floor here would be redundant as well as wrong.
 	return depth
 }
 
 // mainlandHeight is metres above the waterline. The MS/AL pine coast rises
 // off the berm; the Pontchartrain bowl stays low. The two are mixed across
 // the Pearl so the chart does not grow a vertical colour seam.
+// marshHeight is the surface of a Louisiana marsh islet: a low platform a
+// metre or so above the water, rising slightly toward the middle of the larger
+// ones. Deliberately flatter and lower than the barrier islands, which carry a
+// dune ridge up to 6.4 m.
+func marshHeight(inland float64) float64 {
+	h := 0.35 + 1.15*smoothstep(0, 260, inland)
+	if h > 1.7 {
+		h = 1.7
+	}
+	return h
+}
+
 func mainlandHeight(lon, lat, inland float64) float64 {
 	delta := 0.5 + 1.6*smoothstep(0, 2_200, inland)
 	delta += 0.35 * (2*fbm(lon*23, lat*27, 4) - 1) * smoothstep(200, 2_000, inland)

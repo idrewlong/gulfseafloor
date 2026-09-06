@@ -309,3 +309,105 @@ func abs(v int) int {
 	}
 	return v
 }
+
+// ringSet answers "is this point on one of these rings" for many rings at once.
+//
+// The barrier chain is ten rings, so Sample could afford to test each in turn.
+// The Louisiana marsh is 1248, and a linear pass over those per pixel would
+// cost more than the whole rest of the sampler. Rings are bucketed by bounding
+// box into a uniform grid, so a query only tests the handful whose box covers
+// the point — almost always none.
+type ringSet struct {
+	rings   []*ringIndex
+	boxes   []ringBox
+	buckets [][]int32
+	minX    float64
+	minY    float64
+	cell    float64
+	nx      int
+	ny      int
+}
+
+type ringBox struct {
+	minX, minY, maxX, maxY float64
+}
+
+func newRingSet(rings [][][]float64) *ringSet {
+	s := &ringSet{}
+	if len(rings) == 0 {
+		return s
+	}
+	minX, minY := math.Inf(1), math.Inf(1)
+	maxX, maxY := math.Inf(-1), math.Inf(-1)
+	for _, r := range rings {
+		if len(r) < 4 {
+			continue
+		}
+		b := ringBox{math.Inf(1), math.Inf(1), math.Inf(-1), math.Inf(-1)}
+		for _, p := range r {
+			x, y := project(p[0], p[1])
+			b.minX = math.Min(b.minX, x)
+			b.minY = math.Min(b.minY, y)
+			b.maxX = math.Max(b.maxX, x)
+			b.maxY = math.Max(b.maxY, y)
+		}
+		s.rings = append(s.rings, newRingIndex(r))
+		s.boxes = append(s.boxes, b)
+		minX, minY = math.Min(minX, b.minX), math.Min(minY, b.minY)
+		maxX, maxY = math.Max(maxX, b.maxX), math.Max(maxY, b.maxY)
+	}
+	if len(s.rings) == 0 {
+		return s
+	}
+
+	w, h := maxX-minX, maxY-minY
+	s.cell = math.Sqrt(math.Max(1, w*h)/float64(len(s.rings))) + 1
+	s.minX, s.minY = minX, minY
+	s.nx = int(w/s.cell) + 1
+	s.ny = int(h/s.cell) + 1
+	s.buckets = make([][]int32, s.nx*s.ny)
+	for i, b := range s.boxes {
+		gx0 := clampInt(int((b.minX-minX)/s.cell), 0, s.nx-1)
+		gx1 := clampInt(int((b.maxX-minX)/s.cell), 0, s.nx-1)
+		gy0 := clampInt(int((b.minY-minY)/s.cell), 0, s.ny-1)
+		gy1 := clampInt(int((b.maxY-minY)/s.cell), 0, s.ny-1)
+		for gy := gy0; gy <= gy1; gy++ {
+			for gx := gx0; gx <= gx1; gx++ {
+				s.buckets[gy*s.nx+gx] = append(s.buckets[gy*s.nx+gx], int32(i))
+			}
+		}
+	}
+	return s
+}
+
+func (s *ringSet) contains(lon, lat float64) bool {
+	if len(s.rings) == 0 {
+		return false
+	}
+	x, y := project(lon, lat)
+	gx := int((x - s.minX) / s.cell)
+	gy := int((y - s.minY) / s.cell)
+	if gx < 0 || gx >= s.nx || gy < 0 || gy >= s.ny {
+		return false
+	}
+	for _, ri := range s.buckets[gy*s.nx+gx] {
+		b := s.boxes[ri]
+		if x < b.minX || x > b.maxX || y < b.minY || y > b.maxY {
+			continue
+		}
+		if s.rings[ri].contains(lon, lat) {
+			return true
+		}
+	}
+	return false
+}
+
+func clampInt(v, lo, hi int) int {
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	return v
+}

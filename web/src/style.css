@@ -560,7 +560,6 @@ body {
   margin-right: -1px;
 }
 
-
 .dial-row input[type='range'] {
   flex: 1;
   min-width: 0;
@@ -607,9 +606,6 @@ body {
   font-variant-numeric: tabular-nums;
   font-size: 15px;
 }
-
-
-
 
 .geo-labels {
   position: absolute;
@@ -980,8 +976,7 @@ body {
 /* ---- Labels: one quiet voice for every caption in the block ---------- */
 
 .block legend,
-.dial > label,
-.tl-stamp-label {
+.dial > label {
   display: block;
   padding: 0;
   margin: 0 0 3px;
@@ -990,222 +985,6 @@ body {
   letter-spacing: 0.13em;
   text-transform: uppercase;
   color: var(--muted);
-}
-
-/* ---- Time row -------------------------------------------------------- */
-
-.block-time {
-  border-bottom: 1px solid var(--hair);
-  padding: 8px 12px 7px;
-}
-
-.block-time[hidden] {
-  display: none;
-}
-
-.tl {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  align-items: end;
-  gap: 0 14px;
-}
-
-.tl-transport {
-  display: flex;
-  gap: 6px;
-  padding-bottom: 2px;
-}
-
-.tl-play,
-.tl-live {
-  min-width: 30px;
-  padding: 4px 9px;
-  background: transparent;
-  border: 1px solid var(--ink);
-  color: var(--ink);
-  font: inherit;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  cursor: pointer;
-  transition: background 120ms ease, color 120ms ease;
-}
-
-.tl-play:hover,
-.tl-live:hover {
-  background: color-mix(in srgb, var(--ink) 8%, transparent);
-}
-
-/* Live is a state, so it reads as an engaged switch rather than a button. */
-.tl-live.is-live {
-  background: var(--ink);
-  color: var(--land);
-}
-
-.tl-axis {
-  position: relative;
-  min-width: 0;
-}
-
-/* ---- Day ruler: the seven-day outlook, as the axis's own scale -------- */
-
-.tl-days {
-  position: relative;
-  height: 30px;
-  margin-bottom: 0;
-  overflow: hidden;
-  /* The ruler sits on the track, so the day columns and the scale they
-     describe read as one instrument rather than two stacked strips. */
-  border-bottom: 1px solid var(--hair);
-}
-
-.tl-day {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  padding-left: 5px;
-  border-left: 1px solid var(--hair-soft);
-  overflow: hidden;
-  white-space: nowrap;
-  line-height: 1.15;
-}
-
-.tl-day-name,
-.tl-day-temps {
-  display: block;
-  font-size: 10.5px;
-}
-
-.tl-day-name {
-  font-weight: 600;
-  letter-spacing: 0.04em;
-}
-
-.tl-day-temps {
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
-}
-
-/* Chance of precipitation as column height: a week of weather reads as a
-   skyline across the ruler instead of seven identical captions. */
-.tl-day-pop {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: color-mix(in srgb, var(--shoal) 42%, transparent);
-}
-
-/* The labels ride above the skyline rather than being occluded by it. */
-.tl-day-name,
-.tl-day-temps {
-  position: relative;
-  z-index: 1;
-}
-
-/* ---- Track ----------------------------------------------------------- */
-
-.tl-track {
-  position: relative;
-  height: 14px;
-  background: var(--paper);
-  border: 1px solid var(--ink);
-  cursor: ew-resize;
-}
-
-.tl-track:focus-visible {
-  outline: 2px solid var(--focus);
-  outline-offset: 2px;
-}
-
-/* Wall-clock now. Magenta is this chart's surveyed-line colour — the state
-   boundaries use it — so the one moment that is not a choice reads as fixed. */
-.tl-now {
-  position: absolute;
-  top: -3px;
-  bottom: -3px;
-  width: 1px;
-  background: var(--magenta);
-}
-
-.tl-handle {
-  position: absolute;
-  top: -5px;
-  bottom: -5px;
-  width: 3px;
-  margin-left: -1px;
-  background: var(--ink);
-}
-
-/* ---- Coverage rows --------------------------------------------------- */
-
-.tl-rows {
-  margin: 5px 0 0;
-  padding: 0;
-  list-style: none;
-  display: grid;
-  gap: 2px;
-}
-
-/* auto, not a fixed note column: an empty note used to reserve 190px and
-   strand the text it did carry at the far right of the block. */
-.tl-row {
-  display: grid;
-  grid-template-columns: 78px 1fr auto;
-  align-items: center;
-  gap: 8px;
-  font-size: 10.5px;
-  color: var(--muted);
-}
-
-.tl-row-label,
-.tl-row-note {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.tl-row-rail {
-  position: relative;
-  display: block;
-  height: 4px;
-  background: color-mix(in srgb, var(--muted) 18%, transparent);
-}
-
-.tl-row-fill {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  background: var(--shoal);
-}
-
-/* A layer the head has scrubbed past. The rule through it is the point: it
-   says the layer is absent, not that it is drawing something faint. */
-.tl-row.is-uncovered .tl-row-label,
-.tl-row.is-uncovered .tl-row-note {
-  text-decoration: line-through;
-}
-
-.tl-row.is-uncovered .tl-row-fill {
-  background: color-mix(in srgb, var(--shoal) 42%, transparent);
-}
-
-/* ---- Head stamp ------------------------------------------------------ */
-
-.tl-stamp {
-  text-align: right;
-  padding-bottom: 1px;
-  white-space: nowrap;
-}
-
-.tl-head {
-  display: block;
-  font-size: 17px;
-  font-weight: 600;
-  letter-spacing: 0.01em;
-  font-variant-numeric: tabular-nums;
-  line-height: 1;
 }
 
 /* ---- Control row ----------------------------------------------------- */
@@ -1412,17 +1191,6 @@ body {
 }
 
 @media (max-width: 820px) {
-  /*
-   * Seven day columns share about 180px here, so the outlook's numbers
-   * collide into a smear. The day names still work as a scale at one letter
-   * each, so they stay and the readings go; the same figures are in the
-   * plain-language outlook rather than being lost.
-   */
-  .tl-day-temps,
-  .tl-day-pop {
-    display: none;
-  }
-
   /* The legend rail crowds the right edge at this width and its hint wraps
      into the chart. Narrow it and let it sit closer in. */
   .legend {

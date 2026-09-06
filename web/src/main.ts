@@ -33,16 +33,6 @@ import { interpolateGrid } from './overlay/currentsTime';
 import { mountBuoys, parseBuoysJson, stationsOnChart, type BuoysHandle } from './overlay/buoys';
 import { mountAircraft, type AircraftHandle } from './overlay/aircraft';
 import { createAircraftLayer } from './overlay/aircraftLayer';
-import { mountRadar, type RadarHandle } from './overlay/radar';
-import { blendAt, parseRadarJson, radarSpan, type RadarSet } from './overlay/radarFrames';
-import { mountWeatherSky, type WeatherSkyHandle } from './overlay/weatherSky';
-import {
-  fieldAt,
-  forecastSpan,
-  parseForecastJson,
-  type WeatherField,
-} from './overlay/weatherField';
-import { dailyOutlook, parsePeriods } from './ui/outlook';
 import { aircraftCaption } from './overlay/aircraftUi';
 import {
   availabilityFromHttp,
@@ -73,8 +63,6 @@ import { mountLabels, screenProject } from './ui/labels';
 import { mountLegend, setLegendUnit } from './ui/legend';
 import { mountInspector, setInspectorUnit } from './ui/inspector';
 import { loadDepthUnit, saveDepthUnit } from './ui/units';
-import { mountTimeline, type TimelineHandle } from './ui/timeline';
-import { covers, createAxis, register, scrubTo, unregister } from './time/axis';
 
 const DEFAULT_CONTOUR_INTERVAL = 10;
 
@@ -163,8 +151,6 @@ async function fetchOk(url: string): Promise<Response> {
  * was no way to tell which one applied.
  */
 const LAYER_UNAVAILABLE: Record<LayerName, string> = {
-  radar: 'No radar loop on this server. Seed one with `make weather`, or it is disabled by GULF_WEATHER_REFRESH=0.',
-  sky: 'No gridded forecast on this server. Seed one with `make weather`, or it is disabled by GULF_WEATHER_REFRESH=0.',
   currents: 'No HYCOM snapshot on this server. Seed one with `make ocean`, or it is disabled by GULF_OCEAN_REFRESH=0.',
   buoys: 'No NDBC snapshot on this server. Seed one with `make ocean`, or it is disabled by GULF_OCEAN_REFRESH=0.',
   aircraft: 'Live ADS-B is unavailable — disabled by GULF_AIRCRAFT=0, or the upstream feed is not answering.',
@@ -417,7 +403,6 @@ async function start(): Promise<void> {
   const buoyMarks = requireEl<HTMLElement>('buoy-marks');
   const aircraftMarks = requireEl<HTMLElement>('aircraft-marks');
   const captionEl = requireEl<HTMLElement>('caption');
-  const timelineRoot = requireEl<HTMLElement>('timeline');
 
   const reduced = prefersReducedMotion();
   // Read once, at boot. Everything below treats this as the reader's
@@ -541,51 +526,14 @@ async function start(): Promise<void> {
   let buoysHandle: BuoysHandle | null = null;
   let aircraftHandle: AircraftHandle | null = null;
 
-  /**
-   * The clock every layer reads, quantised to the second.
-   *
-   * Quantising matters: while the axis is live its head is re-pinned to this
-   * value every frame, and a millisecond-resolution clock would make the head
-   * change sixty times a second, waking every subscriber to rebuild captions
-   * for a time nobody can read that finely.
-   */
-  const now = (): number => Math.floor(Date.now() / 1000) * 1000;
-  const axis = createAxis(now());
-  // A shared link that names a time must come off live, or the timeline's
-  // own tick re-pins the head to the wall clock on the next frame and the
-  // restored moment is gone before it is ever drawn.
-  if (shared0.timeMs != null) {
-    const at = shared0.timeMs;
-    axis.update((st) => scrubTo(st, at));
-  }
-  let timeline: TimelineHandle | null = null;
   // The time cursor (repaint the field toward "now") and the ETag poll (fetch
   // a fresh forecast stack) are deliberately separate cadences.
   const CURRENTS_POLL_MS = 15 * 60 * 1000;
   const BUOYS_POLL_MS = 5 * 60 * 1000;
   const CURSOR_MS = 30 * 1000;
-  // Real-time floor on field repaints. The cursor throttle above is measured
-  // in displayed time, which one frame of a play sweep crosses in a stride.
-  const PAINT_MIN_MS = 100;
-  // How long an observation speaks for: NDBC's own reporting cadence, and
-  // ADS-B's. Outside it the layer drops off the chart rather than being drawn
-  // under a timestamp it cannot support.
-  const BUOY_STALE_MS = 60 * 60 * 1000;
-  const AIRCRAFT_STALE_MS = 60 * 1000;
-  let skyHandle: WeatherSkyHandle | null = null;
-  let weatherField: WeatherField | null = null;
-  let skyOn = false;
-  const FORECAST_POLL_MS = 30 * 60 * 1000;
-  let radarHandle: RadarHandle | null = null;
-  let radarSet: RadarSet | null = null;
-  let radarOn = false;
-  /** Whether the first radar manifest has landed and set the toggle once. */
-  let radarPrimed = false;
-  const RADAR_POLL_MS = 5 * 60 * 1000;
   let currentsStack: VelocityStack | null = null;
   let currentsEtag: string | null = null;
-  let lastPaintedHead = Number.NEGATIVE_INFINITY;
-  let lastPaintReal = 0;
+  let lastCursor = 0;
   // Shape currentsHandle is currently mounted at. setGrid re-uploads in
   // place assuming nx/ny/bbox never change; a polled stack that disagrees
   // must remount instead (F6) rather than write past the GPU buffer.
@@ -630,8 +578,6 @@ async function start(): Promise<void> {
       aircraftMarks.hidden = !isOn;
     },
     setToggle: (avail, isOn) => setLayerToggle(form, 'aircraft', avail, isOn),
-    declare: (at) => registerInstant('aircraft', 'Aircraft', at, AIRCRAFT_STALE_MS),
-    withdraw: () => axis.update((st) => unregister(st, 'aircraft')),
     onChange: () => {
       applyLayerVisibility();
       setCaption(exaggeration);
@@ -639,101 +585,25 @@ async function start(): Promise<void> {
     initiallyOn: shared0.layers?.aircraft ?? true,
   });
 
-  /** Declare the forecast window the loaded stack can speak for. */
-  const registerCurrents = (stack: VelocityStack | null): void => {
-    if (!stack || stack.times.length === 0) {
-      return;
-    }
-    axis.update((st) =>
-      register(st, {
-        id: 'currents',
-        label: 'Currents',
-        kind: 'span',
-        t0: stack.times[0]!,
-        t1: stack.times[stack.times.length - 1]!,
-      }),
-    );
-  };
-
-  /** Declare an observation instant. Ignores an unparseable timestamp. */
-  const registerInstant = (id: string, label: string, iso: string | null, staleAfterMs: number): void => {
-    if (iso == null) {
-      return;
-    }
-    const t = Date.parse(iso);
-    if (!Number.isFinite(t)) {
-      return;
-    }
-    axis.update((st) => register(st, { id, label, kind: 'instant', t0: t, t1: t, staleAfterMs }));
-  };
-
-  /**
-   * A layer draws when the viewer asked for it *and* the axis head is inside
-   * the window that layer declared. Scrubbing past a layer's data hides it
-   * rather than holding the last frame under a timestamp it cannot support.
-   */
-  const layerShown = (id: string): boolean => {
-    const st = axis.state();
-    return covers(st.coverage, id, st.headMs);
-  };
-
   const applyLayerVisibility = (): void => {
-    if (radarHandle && radarSet) {
-      radarHandle.setEnabled(radarOn);
-      radarHandle.show(radarSet, blendAt(radarSet, axis.head(), RADAR_GRACE_MS));
-    }
-    if (skyHandle && weatherField) {
-      const show = skyOn && layerShown('forecast');
-      skyHandle.setEnabled(show);
-      if (show) {
-        skyHandle.update(weatherField, fieldAt(weatherField, axis.head()), axis.head());
-      }
-    }
-    const showCurrents = oceanOn.currents && layerShown('currents');
-    currentsHandle?.setEnabled(showCurrents);
-    currentsLegend.hidden = !showCurrents;
+    currentsHandle?.setEnabled(oceanOn.currents);
+    currentsLegend.hidden = !oceanOn.currents;
     if (buoysHandle) {
-      const show = oceanOn.buoys && layerShown('buoys');
-      buoysHandle.setEnabled(show);
-      buoyMarks.hidden = !show;
+      buoysHandle.setEnabled(oceanOn.buoys);
+      buoyMarks.hidden = !oceanOn.buoys;
     }
     if (aircraftHandle) {
-      const show = aircraft.on() && layerShown('aircraft');
-      aircraftHandle.setEnabled(show);
-      aircraftMarks.hidden = !show;
+      aircraftHandle.setEnabled(aircraft.on());
+      aircraftMarks.hidden = !aircraft.on();
     }
   };
 
   const setCaption = (exag: number): void => {
     const base = `Looking north · ${region} · ${depthSource} · ${exag}× vertical`;
-    const headMs = axis.head();
-    // A layer outside its window contributes nothing to the caption: naming a
-    // bracketing forecast hour for a time the stack does not reach would put a
-    // timestamp on data that is not there.
-    const showCurrents = oceanOn.currents && layerShown('currents');
-    const currentsPart = currentsCaption(showCurrents ? currentsStack : null, headMs);
-    const showBuoys = oceanOn.buoys && layerShown('buoys');
-    const buoysPart = showBuoys && buoysValid ? `Buoys NDBC ${formatValidZ(buoysValid)}` : '';
-    // Radar frames are observations minutes old by the time they arrive.
-    // Naming the scan is the difference between showing the latest picture
-    // and implying it is the present one.
-    let radarPart = '';
-    if (radarOn && radarSet && layerShown('radar')) {
-      const b = blendAt(radarSet, headMs, RADAR_GRACE_MS);
-      if (b.inside) {
-        const scan = radarSet.times[b.i0]!;
-        const ageMin = Math.max(0, Math.round((headMs - scan) / 60000));
-        radarPart = `Radar NOAA ${formatValidZ(new Date(scan).toISOString())}`;
-        if (ageMin >= 1) {
-          radarPart += ` (${ageMin} min old)`;
-        }
-      }
-    }
-    const ocean = [radarPart, currentsPart, buoysPart].filter(Boolean).join(' · ');
-    const air =
-      aircraft.on() && layerShown('aircraft')
-        ? aircraftCaption(aircraft.source(), aircraft.fetchedAt())
-        : '';
+    const currentsPart = currentsCaption(oceanOn.currents ? currentsStack : null, Date.now());
+    const buoysPart = oceanOn.buoys && buoysValid ? `Buoys NDBC ${formatValidZ(buoysValid)}` : '';
+    const ocean = [currentsPart, buoysPart].filter(Boolean).join(' · ');
+    const air = aircraft.on() ? aircraftCaption(aircraft.source(), aircraft.fetchedAt()) : '';
     const parts = [base];
     if (ocean) {
       parts.push(ocean);
@@ -745,28 +615,6 @@ async function start(): Promise<void> {
   };
   setCaption(DEFAULT_EXAGGERATION);
 
-  /**
-   * Re-upload the velocity field for the current head.
-   *
-   * Two throttles, because the head moves for two different reasons. Live, it
-   * tracks the wall clock, and CURSOR_MS keeps that to one repaint every
-   * thirty seconds — the cadence this viewer has always used. Under a scrub or
-   * a play sweep the head can cross hours in one frame, so PAINT_MIN_MS caps
-   * the GPU uploads in real time as well.
-   */
-  const repaintField = (): void => {
-    if (!currentsStack || !currentsHandle) {
-      return;
-    }
-    const headMs = axis.head();
-    const real = performance.now();
-    if (Math.abs(headMs - lastPaintedHead) < CURSOR_MS || real - lastPaintReal < PAINT_MIN_MS) {
-      return;
-    }
-    lastPaintedHead = headMs;
-    lastPaintReal = real;
-    currentsHandle.setGrid(interpolateGrid(currentsStack, headMs));
-  };
 
 
 
@@ -789,15 +637,6 @@ async function start(): Promise<void> {
 
   let shownUnit = initialUnit;
 
-  // One subscription drives everything the head touches: the field on the
-  // GPU, which layers are allowed to draw, and the caption that names them.
-  axis.subscribe(() => {
-    repaintField();
-    applyLayerVisibility();
-    setCaption(exaggeration);
-    syncUrl();
-  });
-  timeline = mountTimeline({ root: timelineRoot, axis, now });
   mountControls(
     form,
     {
@@ -805,8 +644,6 @@ async function start(): Promise<void> {
       contourInterval: initialContour,
       sunAzimuth: initialSunAz,
       sunAltitude: initialSunAlt,
-      radar: radarOn,
-      sky: skyOn,
       currents: oceanOn.currents,
       buoys: oceanOn.buoys,
       aircraft: false,
@@ -819,8 +656,6 @@ async function start(): Promise<void> {
       applySun(sunDir, state.sunAzimuth, state.sunAltitude);
       currentSunAzimuth = state.sunAzimuth;
       currentSunAltitude = state.sunAltitude;
-      radarOn = state.radar;
-      skyOn = state.sky;
       oceanOn = { currents: state.currents, buoys: state.buoys };
       aircraft.setOn(state.aircraft);
       applyLayerVisibility();
@@ -872,10 +707,7 @@ async function start(): Promise<void> {
   const currentViewState = (): ViewState => {
     const t = controls.target;
     const ll = localToLonLat(t.x, t.y);
-    const st = axis.state();
     const layers: Record<LayerName, boolean> = {
-      radar: radarOn,
-      sky: skyOn,
       currents: oceanOn.currents,
       buoys: oceanOn.buoys,
       aircraft: aircraft.on(),
@@ -885,7 +717,6 @@ async function start(): Promise<void> {
       lat: ll.lat,
       dist: camera.position.distanceTo(t),
       polar: (controls.getPolarAngle() * 180) / Math.PI,
-      timeMs: st.live ? null : st.headMs,
       layers,
       exaggeration,
       contourInterval: shared.uContourInterval.value,
@@ -948,8 +779,7 @@ async function start(): Promise<void> {
     }
     currentsStack = velocityStackFromJson(currentsRaw);
     currentsEtag = currentsRes.headers.get('ETag');
-    registerCurrents(currentsStack);
-    const grid = currentsStack ? interpolateGrid(currentsStack, axis.head()) : null;
+    const grid = currentsStack ? interpolateGrid(currentsStack, Date.now()) : null;
     const buoysParsed = parseBuoysJson(buoysRaw);
     const avail = { currents: grid != null, buoys: buoysParsed != null };
     // A shared link states which layers the reader was looking at. It can
@@ -966,7 +796,7 @@ async function start(): Promise<void> {
       currentsHandle = mountCurrents(scene, grid, { reducedMotion: reduced, floatOk });
       currentsGridShape = gridShapeOf(grid);
       currentsHandle.setEnabled(layersOn.currents);
-      lastPaintedHead = axis.head();
+      lastCursor = Date.now();
       currentsLegend.innerHTML = currentsLegendHtml();
       currentsLegend.hidden = !layersOn.currents;
     }
@@ -979,7 +809,6 @@ async function start(): Promise<void> {
     }
 
     buoysValid = buoysParsed?.validTime ?? null;
-    registerInstant('buoys', 'Buoys', buoysValid, BUOY_STALE_MS);
     buoysEtag = buoysRes.headers.get('ETag');
     const datasetId = hycomDatasetId(currentsRaw);
     if (datasetId) {
@@ -992,134 +821,6 @@ async function start(): Promise<void> {
     applyLayerVisibility();
     setCaption(exaggeration);
   })();
-
-  const radarFrameURL = (file: string): string => `/api/weather/frames/${file}`;
-
-  /**
-   * How long the newest scan stands as the current picture.
-   *
-   * Sized to the real pipeline rather than to the frame step: NOAA's mosaic
-   * publishes about nine minutes behind wall clock, and our refresher
-   * collects it every five, so a live chart is routinely looking at a scan
-   * ten to fifteen minutes old. Twenty minutes covers that without letting a
-   * genuinely stalled feed imply weather — past it the layer drops out. The
-   * caption states the scan time either way, so the age is never implied.
-   */
-  const RADAR_GRACE_MS = 20 * 60 * 1000;
-
-  /**
-   * Adopt a radar manifest: declare its window on the axis, and mount or
-   * remount the sheet.
-   *
-   * The loop is remounted rather than patched when the geometry changes,
-   * because the sheet's plane is built from the manifest's bbox — a bbox
-   * that moved would otherwise drape the new frames over the old rectangle.
-   */
-  const adoptRadar = (next: RadarSet): void => {
-    const changed =
-      radarSet == null ||
-      radarSet.bbox.west !== next.bbox.west ||
-      radarSet.bbox.east !== next.bbox.east ||
-      radarSet.bbox.south !== next.bbox.south ||
-      radarSet.bbox.north !== next.bbox.north;
-    radarSet = next;
-    const span = radarSpan(next, RADAR_GRACE_MS);
-    axis.update((st) =>
-      register(st, {
-        id: 'radar',
-        label: 'Radar',
-        kind: 'span',
-        track: 'weather',
-        t0: span.t0,
-        t1: span.t1,
-      }),
-    );
-    if (!radarHandle || changed) {
-      radarHandle?.destroy();
-      radarHandle = mountRadar(scene, next, { frameURL: radarFrameURL });
-    }
-    if (!radarPrimed) {
-      radarPrimed = true;
-      radarOn = shared0.layers?.radar ?? false;
-    }
-    setLayerToggle(form, 'radar', true, radarOn);
-    applyLayerVisibility();
-    setCaption(exaggeration);
-  };
-
-  // New scans land every couple of minutes upstream; the server rebuilds the
-  // loop every five. Polling on that cadence keeps the newest frame roughly
-  // current without re-downloading images already cached.
-  //
-  // A 404 here means the server has no weather snapshot and, under
-  // GULF_WEATHER_REFRESH=0, never will — the poller stops rather than asking
-  // again every five minutes for the life of the tab.
-  createPoller({
-    everyMs: RADAR_POLL_MS,
-    load: async (): Promise<LoadResult> => {
-      const res = await fetch('/api/weather/radar');
-      if (res.status === 404) {
-        setLayerToggle(form, 'radar', false, false);
-        return 'unavailable';
-      }
-      if (!res.ok) {
-        setLayerToggle(form, 'radar', false, false);
-        return 'empty';
-      }
-      const next = parseRadarJson(await res.json());
-      if (!next) {
-        setLayerToggle(form, 'radar', false, false);
-        return 'empty';
-      }
-      adoptRadar(next);
-      return 'ok';
-    },
-  });
-
-  createPoller({
-    everyMs: FORECAST_POLL_MS,
-    load: async (): Promise<LoadResult> => {
-      const res = await fetch('/api/weather/forecast');
-      if (res.status === 404) {
-        setLayerToggle(form, 'sky', false, false);
-        return 'unavailable';
-      }
-      if (!res.ok) {
-        setLayerToggle(form, 'sky', false, false);
-        return 'empty';
-      }
-      const doc = await res.json();
-      const next = parseForecastJson(doc);
-      if (!next) {
-        setLayerToggle(form, 'sky', false, false);
-        return 'empty';
-      }
-      weatherField = next;
-      const span = forecastSpan(next);
-      axis.update((st) =>
-        register(st, {
-          id: 'forecast',
-          label: 'Clouds & rain',
-          kind: 'span',
-          track: 'weather',
-          t0: span.t0,
-          t1: span.t1,
-        }),
-      );
-      if (!skyHandle) {
-        skyHandle = mountWeatherSky(scene, next);
-        skyHandle.setReducedMotion(reduced);
-        skyOn = shared0.layers?.sky ?? false;
-      }
-      setLayerToggle(form, 'sky', true, skyOn);
-
-      // The outlook is the timeline's day scale, not a panel of its own.
-      timeline?.setOutlook(dailyOutlook(parsePeriods(doc)));
-      applyLayerVisibility();
-      setCaption(exaggeration);
-      return 'ok';
-    },
-  });
 
   // Steady state must not re-download the stack: send the ETag and treat a
   // 304 as "nothing changed." A failed poll keeps the stack already loaded.
@@ -1144,11 +845,10 @@ async function start(): Promise<void> {
       }
       currentsStack = next;
       currentsEtag = res.headers.get('ETag');
-      registerCurrents(next);
-      // A fresh stack must repaint whatever the head is showing, however
+      // A fresh stack repaints on the next cursor tick regardless of how
       // recently the last one did.
-      lastPaintedHead = Number.NEGATIVE_INFINITY;
-      const grid = interpolateGrid(next, axis.head());
+      lastCursor = 0;
+      const grid = interpolateGrid(next, Date.now());
       if (!currentsHandle) {
         // F5: on a fresh deploy the first request 404s before `make ocean`
         // has ever run, and the background refresher lands ~15s after
@@ -1200,7 +900,6 @@ async function start(): Promise<void> {
       }
       buoysEtag = res.headers.get('ETag');
       buoysValid = parsed.validTime;
-      registerInstant('buoys', 'Buoys', buoysValid, BUOY_STALE_MS);
 
       // Remounting replaces every mark, which drops hover and focus. Put
       // focus back on the same station id afterwards so a keyboard user
@@ -1325,22 +1024,14 @@ async function start(): Promise<void> {
     syncUrl();
 
     timer.update();
-    const dtSec = timer.getDelta();
-    currentsHandle?.tick(dtSec);
-    // The particle sim above runs on frame time; the field it advects is a
-    // forecast, and which forecast time it shows is the axis's call. Ticking
-    // the axis is what repaints it — see repaintField for the throttles.
-    timeline?.tick(dtSec * 1000);
-    if (skyHandle) {
-      // Put the rain volume under the camera each frame. Distance to the
-      // orbit target is a good enough stand-in for the visible width, and it
-      // costs nothing next to computing the true footprint every frame.
-      skyHandle.setFocus(
-        controls.target.x,
-        controls.target.y,
-        camera.position.distanceTo(controls.target),
-      );
-      skyHandle.tick(dtSec);
+    currentsHandle?.tick(timer.getDelta());
+    // Separate cadence from the particle sim above: repaint the field toward
+    // wall-clock "now" every 30s, independent of the 15-minute ETag poll.
+    const nowMs = Date.now();
+    if (currentsStack && currentsHandle && nowMs - lastCursor >= CURSOR_MS) {
+      lastCursor = nowMs;
+      currentsHandle.setGrid(interpolateGrid(currentsStack, nowMs));
+      setCaption(exaggeration);
     }
 
     if (hovering && readoutEl.dataset.buoy !== '1' && readoutEl.dataset.aircraft !== '1') {

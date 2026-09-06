@@ -13,7 +13,7 @@ import (
 // falls back to disk. Refresh never happens on the request path, so a stalled
 // upstream can never become request latency.
 //
-// The currents, radar and forecast layers each own one of these. The buoys
+// The currents layer owns one of these. The buoys
 // layer needs its decoded struct published atomically alongside the bytes —
 // the currents write-through reads it — so it keeps its own type rather than
 // bolting a second lock onto this one.

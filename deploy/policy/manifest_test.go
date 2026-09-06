@@ -74,11 +74,10 @@ func TestDeploymentGivesEveryWritableDirAVolume(t *testing.T) {
 		t.Fatal("no volumes matched; the scan above is stale")
 	}
 
-	// Every directory the server writes through to. Left at their defaults
-	// these resolve onto the read-only root: the ocean layers then lose
-	// durability, and radar cannot create its frame directory at all, so the
-	// weather layers report themselves permanently unavailable in the pod.
-	for _, key := range []string{"GULF_OCEAN_DIR", "GULF_WEATHER_DIR"} {
+	// Every directory the server writes through to. Left at its default
+	// this resolves onto the read-only root and the ocean layers lose
+	// durability.
+	for _, key := range []string{"GULF_OCEAN_DIR"} {
 		dir, ok := env[key]
 		if !ok {
 			t.Errorf("%s is unset, so it defaults onto the read-only root filesystem", key)

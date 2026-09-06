@@ -13,8 +13,7 @@ const base: ViewState = {
   lat: 30.4567,
   dist: 180_000,
   polar: 12.5,
-  timeMs: null,
-  layers: { radar: true, sky: false, currents: true, buoys: false, aircraft: true },
+  layers: { currents: true, buoys: false, aircraft: true },
   exaggeration: 1,
   contourInterval: 10,
   sunAzimuth: 315,
@@ -37,19 +36,12 @@ describe('viewState round trip', () => {
     assert.equal(back.lat, 30.4567);
     assert.equal(back.dist, 180_000);
     assert.equal(back.polar, 12.5);
-    assert.equal(back.timeMs, null);
     assert.deepEqual(back.layers, base.layers);
-  });
-
-  it('restores a pinned time rather than snapping back to live', () => {
-    const at = Date.UTC(2026, 8, 4, 14, 30);
-    const back = decodeViewState(encodeViewState({ ...base, timeMs: at }, defaults));
-    assert.equal(back.timeMs, at);
   });
 
   it('restores every layer combination exactly', () => {
     for (const name of LAYER_NAMES) {
-      const layers = { radar: false, sky: false, currents: false, buoys: false, aircraft: false };
+      const layers = { currents: false, buoys: false, aircraft: false };
       layers[name] = true;
       const back = decodeViewState(encodeViewState({ ...base, layers }, defaults));
       assert.deepEqual(back.layers, layers, `only ${name} should be on`);
@@ -57,7 +49,7 @@ describe('viewState round trip', () => {
   });
 
   it('survives every layer being off', () => {
-    const layers = { radar: false, sky: false, currents: false, buoys: false, aircraft: false };
+    const layers = { currents: false, buoys: false, aircraft: false };
     const back = decodeViewState(encodeViewState({ ...base, layers }, defaults));
     assert.deepEqual(back.layers, layers);
   });
@@ -102,10 +94,10 @@ describe('viewState validation', () => {
   });
 
   it('drops an off-globe camera but keeps the rest of the URL', () => {
-    const back = decodeViewState(`#v=1&c=-999,999,50000,10&t=live`);
+    const back = decodeViewState(`#v=1&c=-999,999,50000,10&u=ft`);
     assert.equal(back.lon, undefined, 'an impossible longitude must not reach the camera');
     assert.equal(back.dist, 50_000, 'the salvageable half of the URL still applies');
-    assert.equal(back.timeMs, null);
+    assert.equal(back.units, 'ft');
   });
 
   it('rejects a non-finite or negative distance', () => {
@@ -136,12 +128,6 @@ describe('viewState validation', () => {
     assert.equal(decodeViewState('#v=1&s=315,999').sunAltitude, 85);
   });
 
-  it('rejects a nonsense timestamp rather than scrubbing to year 275760', () => {
-    assert.equal(decodeViewState('#v=1&t=99999999999999999').timeMs, undefined);
-    assert.equal(decodeViewState('#v=1&t=-5').timeMs, undefined);
-    assert.equal(decodeViewState('#v=1&t=banana').timeMs, undefined);
-  });
-
   it('ignores an unknown depth unit', () => {
     assert.equal(decodeViewState('#v=1&u=fathoms').units, undefined);
     assert.equal(decodeViewState('#v=1&u=ft').units, 'ft');
@@ -150,8 +136,6 @@ describe('viewState validation', () => {
   it('ignores unknown layer names without disturbing the known ones', () => {
     const back = decodeViewState('#v=1&l=currents,sharks');
     assert.deepEqual(back.layers, {
-      radar: false,
-      sky: false,
       currents: true,
       buoys: false,
       aircraft: false,
@@ -166,7 +150,7 @@ describe('viewState readability', () => {
     const hash = encodeViewState(base, defaults);
     assert.ok(!hash.includes('%2C'), `commas should not be percent-encoded: ${hash}`);
     assert.ok(hash.includes('c=-89.1234,30.4567,'), `camera should read plainly: ${hash}`);
-    assert.ok(hash.includes('l=radar,currents,aircraft'), `layers should read plainly: ${hash}`);
+    assert.ok(hash.includes('l=currents,aircraft'), `layers should read plainly: ${hash}`);
   });
 
   it('still round-trips with unescaped commas', () => {

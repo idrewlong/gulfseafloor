@@ -1,12 +1,12 @@
 /**
  * The one polling loop every live layer runs.
  *
- * Radar, the forecast, currents, buoys and aircraft all did the same three
- * things by hand in main.ts: load once, set an interval, and swallow errors.
- * They also all shared the same defect — the interval was armed whether or
- * not the endpoint existed, so a server without a weather snapshot (or an
- * air-gapped one, where `GULF_WEATHER_REFRESH=0` guarantees it never will
- * have) was asked for it every five minutes for the life of the tab.
+ * Currents, buoys and aircraft all did the same three things by hand in
+ * main.ts: load once, set an interval, and swallow errors. They also all
+ * shared the same defect — the interval was armed whether or not the
+ * endpoint existed, so a server with no snapshot (or an air-gapped one,
+ * where `GULF_OCEAN_REFRESH=0` guarantees it never will have) was asked for
+ * it every few minutes for the life of the tab.
  *
  * A load reports back what it learned, and the poller acts on it:
  *
@@ -41,8 +41,8 @@ export type PollerOptions = {
    *
    * Aircraft uses this. It is the one layer whose upstream is a third party
    * that can fail and recover inside a single session, and probing it costs
-   * one request. Radar and the forecast do not: their availability is a
-   * server configuration, and it does not change under a running server.
+   * one request. The ocean layers do not: their availability is a server
+   * configuration, and it does not change under a running server.
    */
   reprobeMs?: number;
 };

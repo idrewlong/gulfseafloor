@@ -106,8 +106,8 @@ describe('createPoller', () => {
   });
 
   // The bug this type exists to fix: an air-gapped server will never grow a
-  // weather snapshot, and asking it every five minutes for the life of the
-  // tab is pure noise.
+  // snapshot, and asking it every few minutes for the life of the tab is
+  // pure noise.
   it('stops polling a layer the server does not serve', async () => {
     let calls = 0;
     createPoller({

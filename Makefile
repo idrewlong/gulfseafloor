@@ -1,4 +1,4 @@
-.PHONY: test tiles web server run tidy ocean weather gebco
+.PHONY: test tiles web server run tidy ocean gebco
 
 DATA_DIR ?= data/tiles
 BIN ?= gulf-viewer
@@ -51,7 +51,3 @@ ocean:
 	@test -n "$(HYCOM_NCSS)" || (echo "set HYCOM_NCSS to a THREDDS NCSS URL"; exit 2)
 	go run ./cmd/ocean -out data/ocean -hycom-url "$(HYCOM_NCSS)"
 
-# Seeds data/weather with a NOAA radar loop and an NWS gridded forecast.
-# Needs no key and no URL: both services are public and unauthenticated.
-weather:
-	go run ./cmd/weather -out data/weather

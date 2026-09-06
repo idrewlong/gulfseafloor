@@ -120,9 +120,6 @@ a format no ordinary tile proxy understands. A PNG is inspectable with
 | `GET /api/ocean/manifest` | ocean snapshot inventory (snapshot only) |
 | `GET /api/ocean/currents` | HYCOM surface-current forecast stack |
 | `GET /api/ocean/buoys` | NDBC stations and their last observation |
-| `GET /api/weather/radar` | NOAA reflectivity loop manifest |
-| `GET /api/weather/frames/{t}.png` | one rendered radar scan, immutable |
-| `GET /api/weather/forecast` | NWS gridded forecast + plain-language outlook |
 | `GET /api/aircraft` | live ADS-B positions |
 | `GET /healthz`, `GET /readyz` | liveness / readiness |
 | `GET /` | embedded SPA |
@@ -149,20 +146,10 @@ clients stay on their 304s. The buoys layer keeps its own type because the
 currents write-through needs its decoded struct published atomically
 alongside the bytes.
 
-Write-through failure is not fatal to serving, with one exception. The
-ocean and forecast layers publish to the cache regardless — a fetch that
-succeeded is served even if the disk is read-only, and only durability
-across a restart is lost. Radar is the exception because it is not
-JSON-in-memory: it writes frame PNGs to a directory and serves them from
-there, so an unwritable `GULF_WEATHER_DIR` makes the layer unavailable
-rather than merely non-durable. See
+Write-through failure is not fatal to serving. The ocean layers publish to
+the cache regardless — a fetch that succeeded is served even if the disk is
+read-only, and only durability across a restart is lost. See
 [`deployment.md`](deployment.md#snapshot-directories).
-
-Each layer also declares, to the client, the time window it can honestly
-speak for. Currents are a forecast and reach hours ahead; buoy and
-aircraft reports are observations at one instant. Move the chart's clock
-outside a layer's window and that layer stops drawing rather than being
-redrawn under a timestamp it cannot support.
 
 `cmd/server` embeds `all:assets` as a fallback SPA. Locally, if
 `GULF_WEB_DIR` (default `web/dist`) contains `index.html`, that
@@ -287,7 +274,7 @@ quantized-mesh terrain is the Cesium stretch, not a toggle.
 
 The serve image was egress-free by construction until the live layers
 landed. It is now egress-free by *configuration*:
-`GULF_OCEAN_REFRESH=0`, `GULF_WEATHER_REFRESH=0` and `GULF_AIRCRAFT=0`
+`GULF_OCEAN_REFRESH=0` and `GULF_AIRCRAFT=0`
 together restore the original property. Any one of them alone does not —
 see [`threat-model.md`](threat-model.md) for the full list of upstreams.
 

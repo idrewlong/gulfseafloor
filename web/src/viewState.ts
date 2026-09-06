@@ -18,15 +18,9 @@ import { isDepthUnit, type DepthUnit } from './ui/units.ts';
 /** Bumped only if the format changes incompatibly; an unknown version is ignored. */
 export const VIEW_STATE_VERSION = 1;
 
-export type LayerName = 'radar' | 'sky' | 'currents' | 'buoys' | 'aircraft';
+export type LayerName = 'currents' | 'buoys' | 'aircraft';
 
-export const LAYER_NAMES: readonly LayerName[] = [
-  'radar',
-  'sky',
-  'currents',
-  'buoys',
-  'aircraft',
-];
+export const LAYER_NAMES: readonly LayerName[] = ['currents', 'buoys', 'aircraft'];
 
 export type ViewState = {
   /** Look-at position, degrees. */
@@ -36,8 +30,6 @@ export type ViewState = {
   dist: number;
   /** Tilt from straight down, degrees. */
   polar: number;
-  /** Chart time, ms since epoch. null means "follow the wall clock". */
-  timeMs: number | null;
   layers: Record<LayerName, boolean>;
   exaggeration: number;
   contourInterval: number;
@@ -88,7 +80,6 @@ export function encodeViewState(
     Math.round(state.dist),
     round(state.polar, 1),
   ].join(','));
-  q.set('t', state.timeMs == null ? 'live' : String(Math.round(state.timeMs)));
   // Layers are listed by name rather than as a bitmask so the URL stays
   // readable and a layer added later cannot silently shift the others.
   q.set('l', LAYER_NAMES.filter((n) => state.layers[n]).join(',') || '-');
@@ -155,24 +146,10 @@ export function decodeViewState(hash: string): Partial<ViewState> {
     }
   }
 
-  const t = q.get('t');
-  if (t === 'live') {
-    out.timeMs = null;
-  } else {
-    const ms = num(t);
-    // Reject a timestamp outside any plausible chart window rather than
-    // scrubbing the axis to year 275760.
-    if (ms != null && ms > 0 && ms < 4_102_444_800_000) {
-      out.timeMs = ms;
-    }
-  }
-
   const l = q.get('l');
   if (l != null) {
     const on = new Set(l.split(',').filter((s) => s !== ''));
     const layers: Record<LayerName, boolean> = {
-      radar: false,
-      sky: false,
       currents: false,
       buoys: false,
       aircraft: false,

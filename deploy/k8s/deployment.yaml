@@ -40,18 +40,13 @@ spec:
               value: ":8080"
             - name: GULF_TILE_DIR
               value: /data/tiles
-            # The live layers write their snapshots through to disk before
-            # publishing. The root filesystem is read-only, so both of these
-            # must name a mounted volume — left at their defaults they
-            # resolved to /data/ocean and /data/weather on the read-only
-            # root, and every write-through failed. For the weather layer
-            # that was fatal rather than cosmetic: radar could not even
-            # create its frame directory, so the layer reported itself
-            # permanently unavailable in the pod.
+            # The ocean layers write their snapshots through to disk before
+            # publishing. The root filesystem is read-only, so this must name
+            # a mounted volume — left at its default it resolved to
+            # /data/ocean on the read-only root and every write-through
+            # failed.
             - name: GULF_OCEAN_DIR
               value: /data/ocean
-            - name: GULF_WEATHER_DIR
-              value: /data/weather
             - name: LOG_FORMAT
               value: json
           livenessProbe:
@@ -90,29 +85,21 @@ spec:
             # with zero tiles because the mount hid what the image carried.
             - name: tmp
               mountPath: /tmp
-            # These two ARE volumes, for the opposite reason: the image
-            # carries no ocean or weather snapshot (both are gitignored and
-            # excluded from the build context), so there is nothing here for
-            # a mount to mask, and the refreshers need somewhere to write.
-            # emptyDir is the right lifetime — a restarted pod re-fetches
-            # within a minute, and neither layer is authoritative.
+            # This one IS a volume, for the opposite reason: the image
+            # carries no ocean snapshot (it is gitignored and excluded from
+            # the build context), so there is nothing here for a mount to
+            # mask, and the refreshers need somewhere to write. emptyDir is
+            # the right lifetime — a restarted pod re-fetches within a
+            # minute, and the layer is not authoritative.
             #
-            # An air-gapped deployment that wants these layers must instead
-            # ship a seeded snapshot and point GULF_OCEAN_DIR /
-            # GULF_WEATHER_DIR at it with the refreshers off; see
-            # docs/deployment.md.
+            # An air-gapped deployment that wants this layer must instead
+            # ship a seeded snapshot and point GULF_OCEAN_DIR at it with the
+            # refreshers off; see docs/deployment.md.
             - name: ocean
               mountPath: /data/ocean
-            - name: weather
-              mountPath: /data/weather
       volumes:
         - name: tmp
           emptyDir: {}
         - name: ocean
           emptyDir:
             sizeLimit: 64Mi
-        - name: weather
-          # Radar keeps up to DefaultRadarFrames PNGs plus one loop-length of
-          # pruning grace, at a few hundred KB each.
-          emptyDir:
-            sizeLimit: 128Mi

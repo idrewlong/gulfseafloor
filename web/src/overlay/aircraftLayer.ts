@@ -32,9 +32,6 @@ export type AircraftLayerOptions = {
   setEnabled: (on: boolean) => void;
   /** Reflect availability and checked-state into the layers panel. */
   setToggle: (available: boolean, on: boolean) => void;
-  /** Declare or withdraw the layer's instant on the time axis. */
-  declare: (fetchedAt: string | null) => void;
-  withdraw: () => void;
   /** Called after any change that the caption or visibility depends on. */
   onChange: () => void;
   /** Whether the layer should start on. A shared link overrides the default. */
@@ -115,7 +112,6 @@ export function createAircraftLayer(opts: AircraftLayerOptions): AircraftLayer {
     fetchedAt = null;
     report = null;
     frameRows = [];
-    opts.withdraw();
     opts.setToggle(false, false);
     opts.setAircraft([]);
     opts.setEnabled(false);
@@ -157,7 +153,6 @@ export function createAircraftLayer(opts: AircraftLayerOptions): AircraftLayer {
       opts.setToggle(true, on);
       source = parsed.source;
       fetchedAt = parsed.fetchedAt;
-      opts.declare(fetchedAt);
       report = { t: performance.now(), rows: parsed.aircraft };
       frameRows = parsed.aircraft.map((row) => ({ ...row }));
       opts.setAircraft(parsed.aircraft);

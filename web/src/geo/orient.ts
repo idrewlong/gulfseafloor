@@ -135,7 +135,7 @@ export const PLACES: readonly Place[] = [
   { name: 'Berwick', lon: -91.237, lat: 29.694, elev: 2, kind: 'city', rank: 3 },
   { name: 'Houma', lon: -90.72, lat: 29.596, elev: 3, kind: 'city' },
   { name: 'Cocodrie', lon: -90.661, lat: 29.245, elev: 1, kind: 'city', rank: 3 },
-  { name: 'Point au Fer', lon: -91.33, lat: 29.32, elev: 1, kind: 'feature', rank: 3 },
+  { name: 'Point au Fer', lon: -91.225, lat: 29.28, elev: 1, kind: 'feature', rank: 3 },
   { name: 'Atchafalaya Bay', lon: -91.30, lat: 29.42, elev: 0, kind: 'water' },
   { name: 'Terrebonne Bay', lon: -90.55, lat: 29.17, elev: 0, kind: 'water', rank: 2 },
   { name: 'Ship Shoal', lon: -91.10, lat: 28.90, elev: 0, kind: 'water', rank: 3 },

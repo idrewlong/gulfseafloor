@@ -3,7 +3,6 @@ data/raw/
 data/work/
 data/tiles/
 data/ocean/
-data/weather/
 data/soundings/
 *.tiff
 *.tif
